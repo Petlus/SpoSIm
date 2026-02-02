@@ -5,7 +5,119 @@ const db = require('./db');
 
 const FOOTBALL_API_KEY = "083b1ae74d7d441d809ec0e0617efcb5";
 const FOOTBALL_BASE_URL = "https://api.football-data.org/v4";
+
+// API-Football.com for supplementary player data
+const API_FOOTBALL_KEY = "22700030a1c824d8eb278bb5951f2a87";
+const API_FOOTBALL_URL = "https://v3.football.api-sports.io";
+
 const F1_BASE_URL = "http://api.jolpi.ca/ergast/f1";
+
+// Mapping football-data.org team IDs to api-football.com team IDs
+const TEAM_ID_MAP = {
+    // ===== BUNDESLIGA =====
+    5: 157,    // Bayern München
+    4: 165,    // Borussia Dortmund
+    721: 173,  // RB Leipzig
+    3: 168,    // Bayer Leverkusen
+    11: 163,   // VfL Wolfsburg
+    19: 169,   // Eintracht Frankfurt
+    17: 172,   // SC Freiburg
+    10: 160,   // VfB Stuttgart
+    12: 162,   // Werder Bremen
+    18: 167,   // Borussia M'gladbach
+    2: 159,    // TSG Hoffenheim
+    15: 170,   // 1. FC Union Berlin
+    1: 180,    // 1. FC Köln
+    16: 164,   // FC Augsburg
+    55: 188,   // Darmstadt 98
+    28: 181,   // Heidenheim
+    36: 182,   // VfL Bochum
+    44: 174,   // FSV Mainz 05
+
+    // ===== PREMIER LEAGUE =====
+    65: 50,    // Manchester City
+    64: 40,    // Liverpool
+    57: 42,    // Arsenal
+    66: 33,    // Manchester United
+    61: 49,    // Chelsea
+    73: 47,    // Tottenham
+    67: 34,    // Newcastle
+    62: 66,    // Aston Villa
+    1044: 51,  // Brighton
+    76: 48,    // West Ham
+    354: 52,   // Crystal Palace
+    563: 55,   // Brentford
+    351: 65,   // Nottingham Forest
+    341: 46,   // Fulham
+    328: 35,   // Bournemouth
+    338: 39,   // Wolves
+    340: 45,   // Everton
+    389: 1359, // Luton Town
+    402: 44,   // Burnley
+    356: 62,   // Sheffield United
+
+    // ===== LA LIGA =====
+    86: 541,   // Real Madrid
+    81: 529,   // Barcelona
+    78: 530,   // Atletico Madrid
+    82: 531,   // Athletic Bilbao
+    95: 532,   // Real Sociedad
+    94: 533,   // Real Betis
+    559: 536,  // Sevilla
+    558: 534,  // Villarreal
+    90: 548,   // Getafe
+    92: 543,   // Real Valladolid
+    298: 538,  // Girona
+    267: 728,  // Osasuna
+    264: 540,  // Celta Vigo
+    275: 537,  // Rayo Vallecano
+    263: 798,  // Mallorca
+    277: 542,  // Alaves
+    250: 539,  // Cadiz
+    285: 545,  // Granada
+
+    // ===== SERIE A =====
+    108: 505,  // Inter Milan
+    98: 489,   // AC Milan
+    109: 496,  // Juventus
+    113: 492,  // Napoli
+    100: 500,  // Roma
+    102: 487,  // Lazio
+    99: 499,   // Fiorentina
+    115: 502,  // Atalanta
+    103: 498,  // Torino
+    110: 504,  // Bologna
+    471: 511,  // Monza
+    470: 503,  // Udinese
+    107: 488,  // Sassuolo
+    1103: 867, // Lecce
+    104: 514,  // Verona
+    445: 497,  // Cagliari
+    454: 512,  // Frosinone
+    448: 515,  // Empoli
+    450: 520,  // Salernitana
+    477: 867,  // Genoa
+
+    // ===== LIGUE 1 =====
+    524: 85,   // PSG
+    548: 91,   // Monaco
+    522: 79,   // Lille
+    518: 81,   // Marseille
+    516: 80,   // Lyon
+    529: 93,   // Nice
+    528: 94,   // Rennes
+    527: 96,   // Lens
+    523: 99,   // Toulouse
+    532: 82,   // Montpellier
+    521: 95,   // Strasbourg
+    546: 97,   // Brest
+    543: 106,  // Nantes
+    547: 1063, // Clermont
+    525: 84,   // Reims
+    533: 116,  // Le Havre
+    537: 98,   // Metz
+    526: 83,   // Lorient
+};
 
 async function fetchFootballData() {
     console.log("Fetching Football Data (football-data.org)...");
@@ -101,6 +213,89 @@ async function fetchFootballData() {
     }
 }
 
+// Fetch upcoming fixtures from football-data.org
+async function fetchFixtures() {
+    console.log("Fetching Fixtures...");
+    const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
+    const allFixtures = [];
+
+    const leagueCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'CL'];
+    const leagueIdMap = { BL1: 2002, PL: 2021, PD: 2014, SA: 2019, FL1: 2015, CL: 2001 };
+
+    for (const code of leagueCodes) {
+        await new Promise(r => setTimeout(r, 1200)); // Rate limit
+        try {
+            // Get next 10 scheduled matches
+            const res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15`, { headers });
+
+            if (res.data.matches && res.data.matches.length > 0) {
+                const matches = res.data.matches.map(m => ({
+                    id: m.id,
+                    leagueId: leagueIdMap[code],
+                    homeTeamId: m.homeTeam.id,
+                    awayTeamId: m.awayTeam.id,
+                    homeTeamName: m.homeTeam.name,
+                    awayTeamName: m.awayTeam.name,
+                    matchday: m.matchday,
+                    utcDate: m.utcDate,
+                    status: 'scheduled'
+                }));
+                allFixtures.push(...matches);
+                console.log(`-> Fetched ${matches.length} fixtures for ${code}`);
+            }
+        } catch (err) {
+            console.error(`Fixtures error ${code}:`, err.message);
+        }
+    }
+
+    return allFixtures;
+}
+
+// Fetch real player names from api-football.com
+async function fetchRealPlayers(teamIds) {
+    console.log("Fetching Real Players (api-football.com)...");
+    const headers = { 'x-rapidapi-key': API_FOOTBALL_KEY, 'x-rapidapi-host': 'v3.football.api-sports.io' };
+    const allPlayers = {};
+
+    for (const teamId of teamIds) {
+        // Check if we have a mapping for this team
+        const apiTeamId = TEAM_ID_MAP[teamId];
+        if (!apiTeamId) continue;
+
+        await new Promise(r => setTimeout(r, 500)); // Rate limit
+        try {
+            const res = await axios.get(`${API_FOOTBALL_URL}/players/squads?team=${apiTeamId}`, { headers });
+
+            if (res.data?.response?.[0]?.players) {
+                const players = res.data.response[0].players.map(p => ({
+                    name: p.name,
+                    age: p.age,
+                    number: p.number,
+                    position: mapPosition(p.position), // GK, DEF, MID, FWD
+                    photo: p.photo
+                }));
+                allPlayers[teamId] = players;
+                console.log(`-> Fetched ${players.length} real players for team ${teamId}`);
+            }
+        } catch (err) {
+            console.error(`Players error for team ${teamId}:`, err.message);
+        }
+    }
+
+    return allPlayers;
+}
+
+// Map api-football positions to our format
+function mapPosition(pos) {
+    if (!pos) return 'SUB';
+    const p = pos.toLowerCase();
+    if (p.includes('goalkeeper')) return 'GK';
+    if (p.includes('defender')) return 'DEF';
+    if (p.includes('midfielder')) return 'MID';
+    if (p.includes('attacker') || p.includes('forward')) return 'FWD';
+    return 'SUB';
+}
+
 async function fetchF1Data() {
     console.log("Fetching F1 Data...");
     try {
@@ -165,6 +360,7 @@ async function fetchF1Data() {
 async function updateAllData() {
     console.log("Starting DB Update...");
     const footballData = await fetchFootballData();
+    const fixturesData = await fetchFixtures();
     const f1Data = await fetchF1Data();
 
     // Prepare Statements
@@ -184,10 +380,14 @@ async function updateAllData() {
     const insertF1Team = db.prepare('INSERT OR REPLACE INTO f1_teams (id, name, perf, reliability) VALUES (?, ?, ?, ?)')
     const insertDriver = db.prepare('INSERT OR REPLACE INTO f1_drivers (id, name, team_id, skill, points) VALUES (?, ?, ?, ?, ?)');
 
+    // Fixtures
+    const insertMatch = db.prepare('INSERT OR REPLACE INTO matches (id, league_id, home_team_id, away_team_id, matchday, status, played_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+
     // Separate domestic leagues from CL
     const CL_ID = 2001;
     const domesticLeagues = footballData.filter(l => l.id !== CL_ID);
     const championsLeague = footballData.find(l => l.id === CL_ID);
+
 
     const updateTx = db.transaction(() => {
         // 1. Process DOMESTIC LEAGUES FIRST
@@ -319,6 +519,20 @@ async function updateAllData() {
                 );
             }
         }
+
+        // Save Fixtures
+        console.log(`Saving ${fixturesData.length} fixtures...`);
+        for (const fix of fixturesData) {
+            insertMatch.run(
+                fix.id,
+                fix.leagueId,
+                fix.homeTeamId,
+                fix.awayTeamId,
+                fix.matchday,
+                fix.status,
+                fix.utcDate
+            );
+        }
     });
 
     updateTx();
@@ -329,5 +543,13 @@ async function updateAllData() {
 module.exports = { updateAllData };
 
 if (require.main === module) {
-    updateAllData();
+    // Initialize database first when running standalone
+    db.initDb().then(() => {
+        updateAllData().then(() => {
+            process.exit(0);
+        }).catch(err => {
+            console.error('Update failed:', err);
+            process.exit(1);
+        });
+    });
 }

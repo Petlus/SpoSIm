@@ -1,21 +1,33 @@
 'use client';
 
-import { Bell, Search, UserCircle } from 'lucide-react';
+import { Bell, Search, UserCircle, Calendar } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 export function Topbar() {
-    const [date, setDate] = useState('Aug 24, 2024');
+    const [date, setDate] = useState('');
+
+    useEffect(() => {
+        // Simulation date - for now using current date but could be stored in DB
+        const simDate = new Date(); // In production: fetch from DB/state
+        const formatted = simDate.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        setDate(formatted);
+    }, []);
 
     return (
         <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-[#0a0a0a]/50 backdrop-blur-md z-40">
             {/* Date Display */}
             <div className="flex items-center gap-3">
-                <div className="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-xs font-mono text-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.1)]">
-                    SEASON 2025/2026
+                <div className="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-xs font-mono text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
+                    SEASON 2024/2025
                 </div>
-                <span className="text-slate-400 text-sm font-medium">
-                    {date}
-                </span>
+                <div className="flex items-center gap-1.5 text-slate-400 text-sm">
+                    <Calendar size={14} className="text-slate-500" />
+                    <span className="font-medium">{date}</span>
+                </div>
             </div>
 
             {/* Right Actions */}

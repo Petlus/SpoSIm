@@ -7,12 +7,12 @@ const footballSim = {};
  */
 footballSim.simulateMatch = (home, away) => {
     // Basic Algo: Strength + Form + HomeAdvantage
-    // But now we calculate "Match Control" per interval
-    const homeStr = (home.att + home.mid) / 2 * home.form * 1.05;
+    // Home Advantage 10%
+    const homeStr = (home.att + home.mid) / 2 * home.form * 1.10;
     const awayStr = (away.att + away.mid) / 2 * away.form;
 
     // Defense Factors
-    const homeDef = home.def * home.form * 1.05;
+    const homeDef = home.def * home.form * 1.10;
     const awayDef = away.def * away.form;
 
     let homeGoals = 0;
@@ -27,20 +27,36 @@ footballSim.simulateMatch = (home, away) => {
         // 1. Possession Phase
         // Random fluctuation + midfield strength
         const rand = Math.random();
-        const homePossessionChance = (homeStr / (homeStr + awayStr)) + (rand * 0.2 - 0.1);
+        // Possession bias based on strength difference (boosted)
+        // Strength ratio: 1.0 = equal. 1.2 = dominant.
+        const strRatio = homeStr / (awayStr + 1); // Avoid div 0
+        const possessionBias = (strRatio - 1) * 0.5; // 0 for equal, 0.1 for 1.2 ratio
+
+        let homePossessionChance = 0.5 + possessionBias + (rand * 0.4 - 0.2); // +/- 20% random swing
 
         const attackingTeam = homePossessionChance > 0.5 ? 'home' : 'away';
 
         // 2. Chance Creation vs Defense
-        let goalChance = 0;
+        // Increase Goal Probability significantly to avoid 0-0 draws
         if (attackingTeam === 'home') {
             // Home attacking
-            const attackPower = homeStr; // simplified
+            const attackPower = homeStr * (1 + (homePossessionChance - 0.5)); // Boost by possession
             const defPower = awayDef;
-            // Chance to create a shot
-            if (Math.random() < (attackPower / (attackPower + defPower)) * 0.4) {
+
+            // Logic: High Attack vs Low Def => High Chance
+            // Base chance for shot: 0.6 (60% per 10min) if equal
+            // Ratio adjustments
+            const dominance = attackPower / (defPower + 1);
+            const shotChance = 0.5 * Math.pow(dominance, 1.5);
+
+            if (Math.random() < shotChance) {
                 // Shot created -> Check for Goal
-                if (Math.random() < 0.33) { // 33% conversion rate placeholder
+                // Conversion rate: 0.25 base (25%)
+                // Boosted by attack quality > 80
+                const qualityBonus = Math.max(0, (home.att - 70) / 100); // e.g. 90 -> 0.2 bonus
+                const conversionRate = 0.20 + qualityBonus;
+
+                if (Math.random() < conversionRate) {
                     homeGoals++;
                     events.push({
                         type: EVENT_TYPES.GOAL,
@@ -52,10 +68,17 @@ footballSim.simulateMatch = (home, away) => {
             }
         } else {
             // Away attacking
-            const attackPower = awayStr;
+            const attackPower = awayStr * (1 + (0.5 - homePossessionChance));
             const defPower = homeDef;
-            if (Math.random() < (attackPower / (attackPower + defPower)) * 0.4) {
-                if (Math.random() < 0.33) {
+
+            const dominance = attackPower / (defPower + 1);
+            const shotChance = 0.5 * Math.pow(dominance, 1.5);
+
+            if (Math.random() < shotChance) {
+                const qualityBonus = Math.max(0, (away.att - 70) / 100);
+                const conversionRate = 0.20 + qualityBonus;
+
+                if (Math.random() < conversionRate) {
                     awayGoals++;
                     events.push({
                         type: EVENT_TYPES.GOAL,
@@ -67,8 +90,8 @@ footballSim.simulateMatch = (home, away) => {
             }
         }
 
-        // 3. Other Events (Cards/Injuries) - Lower probability per interval
-        if (Math.random() < 0.04) {
+        // 3. Other Events (Cards/Injuries)
+        if (Math.random() < 0.035) {
             const victim = Math.random() > 0.5 ? 'home' : 'away';
             events.push({
                 type: EVENT_TYPES.YELLOW,

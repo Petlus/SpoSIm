@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy } from 'lucide-react';
+import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 
 // Form Dot Component
 const FormDot = ({ result }: { result: string }) => {
@@ -34,6 +34,11 @@ export default function LeaguePage() {
     const [fixtures, setFixtures] = useState<any[]>([]);
     const [loadingOdds, setLoadingOdds] = useState(false);
 
+    // Matchday navigation state
+    const [currentMatchday, setCurrentMatchday] = useState(1);
+    const [minMatchday, setMinMatchday] = useState(1);
+    const [maxMatchday, setMaxMatchday] = useState(34);
+
     // Insights Panel State
     const [insightsOpen, setInsightsOpen] = useState(false);
     const [insightsData, setInsightsData] = useState<any>(null);
@@ -54,32 +59,62 @@ export default function LeaguePage() {
                 if (!activeGroup) setActiveGroup(firstGroup);
                 league.teams.sort((a: any, b: any) => b.points - a.points);
                 setData(league);
-                generateFixtures(league.teams);
+                loadFixtures(leagueId as string);
             }
             setLoading(false);
         }
     }
 
-    const generateFixtures = async (teams: any[]) => {
-        if (teams.length < 2) return;
-        setLoadingOdds(true);
-        const shuffled = [...teams].sort(() => Math.random() - 0.5);
-        const pairs = [];
-        for (let i = 0; i < shuffled.length - 1; i += 2) {
-            pairs.push({ home: shuffled[i], away: shuffled[i + 1], odds: null });
+    const loadFixtures = async (leagueId: string, matchday?: number) => {
+        setLoadingOdds(false);
+        setFixtures([]);
+        // @ts-ignore
+        if (window.electron) {
+            // @ts-ignore
+            const result = await window.electron.getFixtures(parseInt(leagueId), matchday);
+
+            // Update matchday state
+            setCurrentMatchday(result.currentMatchday);
+            setMinMatchday(result.minMatchday);
+            setMaxMatchday(result.maxMatchday);
+
+            // Format fixtures
+            const formattedFixtures = result.matches.map((fix: any) => ({
+                home: fix.home,
+                away: fix.away,
+                matchday: fix.matchday,
+                date: fix.date ? new Date(fix.date).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'TBD',
+                odds: null,
+                loadingOdds: false
+            }));
+            setFixtures(formattedFixtures);
         }
-        setFixtures(pairs);
+    };
+
+    const predictMatch = async (index: number, homeId: number, awayId: number) => {
+        const newFixtures = [...fixtures];
+        // @ts-ignore
+        newFixtures[index].loadingOdds = true;
+        setFixtures([...newFixtures]);
 
         // @ts-ignore
         if (window.electron) {
-            for (let i = 0; i < pairs.length; i++) {
-                // @ts-ignore
-                const odds = await window.electron.getMatchOdds(pairs[i].home.id, pairs[i].away.id);
-                pairs[i].odds = odds;
-                setFixtures([...pairs]);
-            }
+            // Artificial delay for UX
+            await new Promise(r => setTimeout(r, 600));
+            // @ts-ignore
+            const odds = await window.electron.getMatchOdds(homeId, awayId);
+            // @ts-ignore
+            newFixtures[index].odds = odds;
         }
-        setLoadingOdds(false);
+        // @ts-ignore
+        newFixtures[index].loadingOdds = false;
+        setFixtures([...newFixtures]);
+    };
+
+    const goToMatchday = (day: number) => {
+        if (day >= minMatchday && day <= maxMatchday && leagueId) {
+            loadFixtures(leagueId as string, day);
+        }
     };
 
     const openInsights = async (home: any, away: any) => {
@@ -201,9 +236,35 @@ export default function LeaguePage() {
             {/* Fixtures Tab */}
             {activeTab === 'fixtures' && (
                 <div className="space-y-4">
-                    <div className="flex items-center justify-between text-sm text-slate-400 mb-2">
-                        <span>Next Matchday - Monte-Carlo Odds (1000 Runs)</span>
-                        {loadingOdds && <span className="flex items-center gap-2"><RefreshCw className="animate-spin" size={14} /> Calculating...</span>}
+                    {/* Matchday Navigation */}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => goToMatchday(currentMatchday - 1)}
+                                disabled={currentMatchday <= minMatchday}
+                                className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            >
+                                <ChevronLeft size={18} />
+                            </button>
+                            <div className="text-center px-4 py-1.5 bg-slate-800/50 rounded-lg border border-slate-700">
+                                <div className="text-xs text-slate-400 uppercase tracking-wider">Matchday</div>
+                                <div className="text-lg font-bold text-white">{currentMatchday}</div>
+                            </div>
+                            <button
+                                onClick={() => goToMatchday(currentMatchday + 1)}
+                                disabled={currentMatchday >= maxMatchday}
+                                className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            >
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm text-slate-400">
+                            <span className="flex items-center gap-1.5">
+                                <Calendar size={14} />
+                                Monte-Carlo Odds (1000 Runs)
+                            </span>
+                            {loadingOdds && <span className="flex items-center gap-2"><RefreshCw className="animate-spin" size={14} /> Calculating...</span>}
+                        </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {fixtures.map((f, i) => (
@@ -242,7 +303,23 @@ export default function LeaguePage() {
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="h-6 bg-slate-700 rounded animate-pulse"></div>
+                                    <button
+                                        onClick={() => predictMatch(i, f.home.id, f.away.id)}
+                                        disabled={f.loadingOdds}
+                                        className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70"
+                                    >
+                                        {f.loadingOdds ? (
+                                            <>
+                                                <RefreshCw className="animate-spin text-emerald-400" size={14} />
+                                                <span className="text-emerald-400">Simulating 1000 Matches...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Activity size={14} className="text-purple-400" />
+                                                Simulate Prediction (1000 Runs)
+                                            </>
+                                        )}
+                                    </button>
                                 )}
                             </div>
                         ))}

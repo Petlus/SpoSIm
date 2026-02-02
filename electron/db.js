@@ -1,4 +1,4 @@
-const Database = require('better-sqlite3');
+const initSqlJs = require('sql.js');
 const path = require('path');
 const fs = require('fs');
 
@@ -9,10 +9,9 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const dbPath = path.join(dataDir, 'sports.db');
-const db = new Database(dbPath);
 
-// Enable WAL for concurrency
-db.pragma('journal_mode = WAL');
+let db = null;
+let SQL = null;
 
 // Define Enhanced Schema
 const schema = `
@@ -197,6 +196,123 @@ const schema = `
     );
 `;
 
-db.exec(schema);
+// Initialize database (async)
+async function initDb() {
+    if (db) return db;
 
-module.exports = db;
+    SQL = await initSqlJs();
+
+    // Load existing database or create new one
+    if (fs.existsSync(dbPath)) {
+        const buffer = fs.readFileSync(dbPath);
+        db = new SQL.Database(buffer);
+        console.log('Loaded existing database from', dbPath);
+    } else {
+        db = new SQL.Database();
+        console.log('Created new database');
+    }
+
+    // Run schema
+    db.run(schema);
+    saveDb();
+
+    return db;
+}
+
+// Save database to disk
+function saveDb() {
+    if (!db) return;
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(dbPath, buffer);
+}
+
+let inTransaction = false;
+
+// Wrapper to mimic better-sqlite3 API
+function prepare(sql) {
+    return {
+        run: (...params) => {
+            db.run(sql, params);
+            if (!inTransaction) {
+                saveDb();
+            }
+            let lastInsertRowid = 0;
+            try {
+                const res = db.exec("SELECT last_insert_rowid()");
+                if (res.length > 0 && res[0].values.length > 0) {
+                    lastInsertRowid = res[0].values[0][0];
+                }
+            } catch (e) { }
+            return { changes: db.getRowsModified(), lastInsertRowid };
+        },
+        get: (...params) => {
+            const stmt = db.prepare(sql);
+            stmt.bind(params);
+            if (stmt.step()) {
+                const row = stmt.getAsObject();
+                stmt.free();
+                return row;
+            }
+            stmt.free();
+            return undefined;
+        },
+        all: (...params) => {
+            const results = [];
+            const stmt = db.prepare(sql);
+            stmt.bind(params);
+            while (stmt.step()) {
+                results.push(stmt.getAsObject());
+            }
+            stmt.free();
+            return results;
+        }
+    };
+}
+
+// Transaction wrapper
+function transaction(fn) {
+    return (...args) => {
+        if (inTransaction) {
+            // Nested transactions are not fully supported in this simple wrapper, 
+            // but we can just execute the function since we are already in a transaction.
+            // We won't commit/rollback here, relying on the outer transaction.
+            return fn(...args);
+        }
+
+        inTransaction = true;
+        try {
+            db.run('BEGIN TRANSACTION');
+            const result = fn(...args);
+            db.run('COMMIT');
+            inTransaction = false;
+            saveDb();
+            return result;
+        } catch (e) {
+            try {
+                db.run('ROLLBACK');
+            } catch (rollbackErr) {
+                // Ignore rollback error if transaction was already aborted
+                console.warn('Rollback failed (transaction might be already closed):', rollbackErr.message);
+            }
+            inTransaction = false;
+            throw e;
+        }
+    };
+}
+
+// Execute raw SQL
+function exec(sql) {
+    db.run(sql);
+    saveDb();
+}
+
+// Export wrapper object that mimics better-sqlite3
+module.exports = {
+    initDb,
+    saveDb,
+    prepare: (sql) => prepare(sql),
+    transaction: (fn) => transaction(fn),
+    exec: (sql) => exec(sql),
+    getDb: () => db
+};

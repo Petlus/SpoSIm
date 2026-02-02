@@ -29,12 +29,16 @@ function createWindow() {
     mainWindow.loadURL(startUrl);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+    // Initialize sql.js database first
+    await db.initDb();
+    console.log('Database initialized');
+
     createWindow();
 
     // Check if Data exists, if not, fetch it
     try {
-        const leagueCount = db.prepare('SELECT count(*) as c FROM leagues').get().c;
+        const leagueCount = db.prepare('SELECT count(*) as c FROM leagues').get()?.c || 0;
         if (leagueCount === 0) {
             console.log("Database empty. Starting initial data fetch...");
             dataFetcher.updateAllData().then(() => {
@@ -121,21 +125,24 @@ ipcMain.handle('get-data', (event, category) => {
             if (l.type === 'tournament') {
                 // For CL and other tournaments: get teams via standings (not league_id)
                 teams = db.prepare(`
-                    SELECT t.*, s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
+                    SELECT DISTINCT t.id, t.name, t.league_id, t.att, t.def, t.mid, t.prestige, t.logo,
+                           s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
                     FROM standings s
                     JOIN teams t ON t.id = s.team_id
                     WHERE s.league_id = ? AND s.season = '2024/2025'
                     ORDER BY s.group_name ASC, s.points DESC
                 `).all(l.id);
             } else {
-                // For domestic leagues: get teams via league_id
+                // For domestic leagues: get teams via league_id with their standings
                 teams = db.prepare(`
-                    SELECT t.*, s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
+                    SELECT DISTINCT t.id, t.name, t.league_id, t.att, t.def, t.mid, t.prestige, t.logo,
+                           s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
                     FROM teams t
-                    LEFT JOIN standings s ON t.id = s.team_id AND s.league_id = ? AND s.season = '2024/2025'
+                    LEFT JOIN standings s ON t.id = s.team_id AND s.league_id = t.league_id AND s.season = '2024/2025'
                     WHERE t.league_id = ?
-                    ORDER BY s.group_name ASC, s.points DESC
-                `).all(l.id, l.id);
+                    GROUP BY t.id
+                    ORDER BY s.points DESC
+                `).all(l.id);
             }
 
             const mappedTeams = teams.map(t => ({
@@ -179,6 +186,65 @@ ipcMain.handle('update-data', async () => {
     } catch (e) {
         return { success: false, error: e.message };
     }
+});
+
+ipcMain.handle('get-fixtures', (event, { leagueId, matchday }) => {
+    // Get matchday bounds first
+    const bounds = db.prepare(`
+        SELECT MIN(matchday) as minDay, MAX(matchday) as maxDay 
+        FROM matches WHERE league_id = ?
+    `).get(leagueId);
+
+    // If no specific matchday, find "current" based on date
+    let targetMatchday = matchday;
+    if (!targetMatchday) {
+        // Find the matchday of the next scheduled match (or recent past match)
+        const next = db.prepare(`
+            SELECT matchday FROM matches 
+            WHERE league_id = ? AND status = 'scheduled' AND played_at >= datetime('now', '-3 days')
+            ORDER BY played_at ASC 
+            LIMIT 1
+        `).get(leagueId);
+
+        if (next) {
+            targetMatchday = next.matchday;
+        } else {
+            // Fallback: Check if season finished (use max) or just started (use min)
+            const last = db.prepare(`SELECT matchday FROM matches WHERE league_id = ? AND status = 'finished' ORDER BY played_at DESC LIMIT 1`).get(leagueId);
+            targetMatchday = last?.matchday || bounds?.minDay || 1;
+        }
+    }
+
+    // Get fixtures for this matchday
+    const matches = db.prepare(`
+        SELECT 
+            m.id, m.league_id, m.matchday, m.status, m.played_at,
+            m.home_team_id, m.away_team_id, m.home_score, m.away_score,
+            ht.name as home_name, ht.logo as home_logo,
+            at.name as away_name, at.logo as away_logo
+        FROM matches m
+        LEFT JOIN teams ht ON m.home_team_id = ht.id
+        LEFT JOIN teams at ON m.away_team_id = at.id
+        WHERE m.league_id = ? AND m.matchday = ?
+        ORDER BY m.played_at ASC
+    `).all(leagueId, targetMatchday);
+
+    return {
+        currentMatchday: targetMatchday,
+        minMatchday: bounds?.minDay || 1,
+        maxMatchday: bounds?.maxDay || 34,
+        matches: matches.map(m => ({
+            id: m.id,
+            leagueId: m.league_id,
+            matchday: m.matchday,
+            date: m.played_at,
+            status: m.status,
+            home: { id: m.home_team_id, name: m.home_name, logo: m.home_logo },
+            away: { id: m.away_team_id, name: m.away_name, logo: m.away_logo },
+            homeScore: m.home_score,
+            awayScore: m.away_score
+        }))
+    };
 });
 
 ipcMain.handle('get-match-odds', (event, { homeId, awayId }) => {
@@ -287,77 +353,83 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
     const runMatchday = db.transaction(() => {
         const insertMatch = db.prepare(`
             INSERT INTO matches (league_id, home_team_id, away_team_id, home_score, away_score, matchday, played_at, status)
-            VALUES (@leagueId, @homeId, @awayId, @homeScore, @awayScore, @matchday, datetime('now'), 'finished')
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'finished')
         `);
 
         const updateStanding = db.prepare(`
             UPDATE standings 
             SET played = played + 1,
-                wins = wins + @wins,
-                draws = draws + @draws,
-                losses = losses + @losses,
-                gf = gf + @gf,
-                ga = ga + @ga,
-                points = points + @points
-            WHERE team_id = @teamId AND season = '2024/2025'
+                wins = wins + ?,
+                draws = draws + ?,
+                losses = losses + ?,
+                gf = gf + ?,
+                ga = ga + ?,
+                points = points + ?
+            WHERE team_id = ? AND season = '2024/2025'
         `);
 
         const insertEvent = db.prepare(`
             INSERT INTO match_events (match_id, team_id, player_id, type, minute, description)
-            VALUES (@matchId, @teamId, @playerId, @type, @minute, @description)
+            VALUES (?, ?, ?, ?, ?, ?)
         `);
 
         for (const m of matchups) {
             const res = footballSim.simulateMatch(m.home, m.away);
 
             // Insert match
-            const matchInfo = insertMatch.run({
+            const matchInfo = insertMatch.run(
                 leagueId,
-                homeId: m.home.id,
-                awayId: m.away.id,
-                homeScore: res.homeGoals,
-                awayScore: res.awayGoals,
-                matchday: currentMatchday
-            });
+                m.home.id,
+                m.away.id,
+                res.homeGoals,
+                res.awayGoals,
+                currentMatchday
+            );
             const matchId = matchInfo.lastInsertRowid;
 
             // Insert Events
             if (res.events) {
                 for (const ev of res.events) {
-                    insertEvent.run({
+                    insertEvent.run(
                         matchId,
-                        teamId: ev.teamId,
-                        playerId: null,
-                        type: ev.type,
-                        minute: ev.minute,
-                        description: ev.description
-                    });
+                        ev.teamId,
+                        null,
+                        ev.type,
+                        ev.minute,
+                        ev.description
+                    );
                 }
             }
 
-            // Update standings
-            updateStanding.run({
-                wins: res.homeGoals > res.awayGoals ? 1 : 0,
-                draws: res.homeGoals === res.awayGoals ? 1 : 0,
-                losses: res.homeGoals < res.awayGoals ? 1 : 0,
-                gf: res.homeGoals, ga: res.awayGoals,
-                points: res.homeGoals > res.awayGoals ? 3 : (res.homeGoals === res.awayGoals ? 1 : 0),
-                teamId: m.home.id
-            });
-            updateStanding.run({
-                wins: res.awayGoals > res.homeGoals ? 1 : 0,
-                draws: res.awayGoals === res.homeGoals ? 1 : 0,
-                losses: res.awayGoals < res.homeGoals ? 1 : 0,
-                gf: res.awayGoals, ga: res.homeGoals,
-                points: res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0),
-                teamId: m.away.id
-            });
+            // Update standings (Home)
+            updateStanding.run(
+                res.homeGoals > res.awayGoals ? 1 : 0,    // wins
+                res.homeGoals === res.awayGoals ? 1 : 0,  // draws
+                res.homeGoals < res.awayGoals ? 1 : 0,    // losses
+                res.homeGoals,                            // gf
+                res.awayGoals,                            // ga
+                res.homeGoals > res.awayGoals ? 3 : (res.homeGoals === res.awayGoals ? 1 : 0), // points
+                m.home.id                                 // team_id
+            );
+
+            // Update standings (Away)
+            updateStanding.run(
+                res.awayGoals > res.homeGoals ? 1 : 0,    // wins
+                res.awayGoals === res.homeGoals ? 1 : 0,  // draws
+                res.awayGoals < res.homeGoals ? 1 : 0,    // losses
+                res.awayGoals,                            // gf
+                res.homeGoals,                            // ga
+                res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0), // points
+                m.away.id                                 // team_id
+            );
 
             results.push({ ...res, matchday: currentMatchday });
         }
 
         return results;
     });
+
+
 
     return runMatchday();
 });
