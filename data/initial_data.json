@@ -1,0 +1,807 @@
+{
+  "football": {
+    "season": "2025/2026",
+    "leagues": [
+      {
+        "id": 39,
+        "name": "Premier League",
+        "teams": [
+          {
+            "id": 40,
+            "name": "Liverpool",
+            "att": 96,
+            "def": 92,
+            "mid": 93,
+            "form": 0.33,
+            "points": 84,
+            "logo": "https://media.api-sports.io/football/teams/40.png"
+          },
+          {
+            "id": 42,
+            "name": "Arsenal",
+            "att": 94,
+            "def": 91,
+            "mid": 92,
+            "form": 0.53,
+            "points": 74,
+            "logo": "https://media.api-sports.io/football/teams/42.png"
+          },
+          {
+            "id": 50,
+            "name": "Manchester City",
+            "att": 93,
+            "def": 90,
+            "mid": 91,
+            "form": 0.87,
+            "points": 71,
+            "logo": "https://media.api-sports.io/football/teams/50.png"
+          },
+          {
+            "id": 49,
+            "name": "Chelsea",
+            "att": 91,
+            "def": 89,
+            "mid": 90,
+            "form": 0.8,
+            "points": 69,
+            "logo": "https://media.api-sports.io/football/teams/49.png"
+          },
+          {
+            "id": 34,
+            "name": "Newcastle",
+            "att": 90,
+            "def": 87,
+            "mid": 89,
+            "form": 0.47,
+            "points": 66,
+            "logo": "https://media.api-sports.io/football/teams/34.png"
+          },
+          {
+            "id": 66,
+            "name": "Aston Villa",
+            "att": 89,
+            "def": 86,
+            "mid": 87,
+            "form": 0.6,
+            "points": 66,
+            "logo": "https://media.api-sports.io/football/teams/66.png"
+          },
+          {
+            "id": 65,
+            "name": "Nottingham Forest",
+            "att": 88,
+            "def": 85,
+            "mid": 86,
+            "form": 0.33,
+            "points": 65,
+            "logo": "https://media.api-sports.io/football/teams/65.png"
+          },
+          {
+            "id": 51,
+            "name": "Brighton",
+            "att": 87,
+            "def": 83,
+            "mid": 85,
+            "form": 0.87,
+            "points": 61,
+            "logo": "https://media.api-sports.io/football/teams/51.png"
+          },
+          {
+            "id": 35,
+            "name": "Bournemouth",
+            "att": 85,
+            "def": 82,
+            "mid": 84,
+            "form": 0.47,
+            "points": 56,
+            "logo": "https://media.api-sports.io/football/teams/35.png"
+          },
+          {
+            "id": 55,
+            "name": "Brentford",
+            "att": 84,
+            "def": 81,
+            "mid": 83,
+            "form": 0.67,
+            "points": 56,
+            "logo": "https://media.api-sports.io/football/teams/55.png"
+          },
+          {
+            "id": 36,
+            "name": "Fulham",
+            "att": 83,
+            "def": 80,
+            "mid": 81,
+            "form": 0.4,
+            "points": 54,
+            "logo": "https://media.api-sports.io/football/teams/36.png"
+          },
+          {
+            "id": 52,
+            "name": "Crystal Palace",
+            "att": 81,
+            "def": 79,
+            "mid": 80,
+            "form": 0.6,
+            "points": 53,
+            "logo": "https://media.api-sports.io/football/teams/52.png"
+          },
+          {
+            "id": 45,
+            "name": "Everton",
+            "att": 80,
+            "def": 78,
+            "mid": 79,
+            "form": 0.67,
+            "points": 48,
+            "logo": "https://media.api-sports.io/football/teams/45.png"
+          },
+          {
+            "id": 48,
+            "name": "West Ham",
+            "att": 79,
+            "def": 76,
+            "mid": 78,
+            "form": 0.47,
+            "points": 43,
+            "logo": "https://media.api-sports.io/football/teams/48.png"
+          },
+          {
+            "id": 33,
+            "name": "Manchester United",
+            "att": 78,
+            "def": 75,
+            "mid": 77,
+            "form": 0.27,
+            "points": 42,
+            "logo": "https://media.api-sports.io/football/teams/33.png"
+          },
+          {
+            "id": 39,
+            "name": "Wolves",
+            "att": 77,
+            "def": 73,
+            "mid": 75,
+            "form": 0.27,
+            "points": 42,
+            "logo": "https://media.api-sports.io/football/teams/39.png"
+          },
+          {
+            "id": 47,
+            "name": "Tottenham",
+            "att": 76,
+            "def": 72,
+            "mid": 74,
+            "form": 0.07,
+            "points": 38,
+            "logo": "https://media.api-sports.io/football/teams/47.png"
+          },
+          {
+            "id": 46,
+            "name": "Leicester",
+            "att": 74,
+            "def": 71,
+            "mid": 73,
+            "form": 0.47,
+            "points": 25,
+            "logo": "https://media.api-sports.io/football/teams/46.png"
+          },
+          {
+            "id": 57,
+            "name": "Ipswich",
+            "att": 73,
+            "def": 70,
+            "mid": 72,
+            "form": 0.07,
+            "points": 22,
+            "logo": "https://media.api-sports.io/football/teams/57.png"
+          },
+          {
+            "id": 41,
+            "name": "Southampton",
+            "att": 71,
+            "def": 68,
+            "mid": 71,
+            "form": 0.07,
+            "points": 12,
+            "logo": "https://media.api-sports.io/football/teams/41.png"
+          }
+        ]
+      },
+      {
+        "id": 78,
+        "name": "Bundesliga",
+        "teams": [
+          {
+            "id": 157,
+            "name": "Bayern München",
+            "att": 96,
+            "def": 92,
+            "mid": 93,
+            "form": 0.87,
+            "points": 82,
+            "logo": "https://media.api-sports.io/football/teams/157.png"
+          },
+          {
+            "id": 168,
+            "name": "Bayer Leverkusen",
+            "att": 94,
+            "def": 91,
+            "mid": 92,
+            "form": 0.4,
+            "points": 69,
+            "logo": "https://media.api-sports.io/football/teams/168.png"
+          },
+          {
+            "id": 169,
+            "name": "Eintracht Frankfurt",
+            "att": 93,
+            "def": 90,
+            "mid": 91,
+            "form": 0.6,
+            "points": 60,
+            "logo": "https://media.api-sports.io/football/teams/169.png"
+          },
+          {
+            "id": 165,
+            "name": "Borussia Dortmund",
+            "att": 92,
+            "def": 88,
+            "mid": 90,
+            "form": 1,
+            "points": 57,
+            "logo": "https://media.api-sports.io/football/teams/165.png"
+          },
+          {
+            "id": 160,
+            "name": "SC Freiburg",
+            "att": 90,
+            "def": 87,
+            "mid": 89,
+            "form": 0.67,
+            "points": 55,
+            "logo": "https://media.api-sports.io/football/teams/160.png"
+          },
+          {
+            "id": 164,
+            "name": "FSV Mainz 05",
+            "att": 89,
+            "def": 86,
+            "mid": 87,
+            "form": 0.4,
+            "points": 52,
+            "logo": "https://media.api-sports.io/football/teams/164.png"
+          },
+          {
+            "id": 173,
+            "name": "RB Leipzig",
+            "att": 88,
+            "def": 85,
+            "mid": 86,
+            "form": 0.2,
+            "points": 51,
+            "logo": "https://media.api-sports.io/football/teams/173.png"
+          },
+          {
+            "id": 162,
+            "name": "Werder Bremen",
+            "att": 86,
+            "def": 83,
+            "mid": 85,
+            "form": 0.6,
+            "points": 51,
+            "logo": "https://media.api-sports.io/football/teams/162.png"
+          },
+          {
+            "id": 172,
+            "name": "VfB Stuttgart",
+            "att": 86,
+            "def": 82,
+            "mid": 84,
+            "form": 0.67,
+            "points": 50,
+            "logo": "https://media.api-sports.io/football/teams/172.png"
+          },
+          {
+            "id": 163,
+            "name": "Borussia Mönchengladbach",
+            "att": 84,
+            "def": 81,
+            "mid": 83,
+            "form": 0.07,
+            "points": 45,
+            "logo": "https://media.api-sports.io/football/teams/163.png"
+          },
+          {
+            "id": 161,
+            "name": "VfL Wolfsburg",
+            "att": 83,
+            "def": 80,
+            "mid": 81,
+            "form": 0.33,
+            "points": 43,
+            "logo": "https://media.api-sports.io/football/teams/161.png"
+          },
+          {
+            "id": 170,
+            "name": "FC Augsburg",
+            "att": 81,
+            "def": 79,
+            "mid": 80,
+            "form": 0.07,
+            "points": 43,
+            "logo": "https://media.api-sports.io/football/teams/170.png"
+          },
+          {
+            "id": 182,
+            "name": "Union Berlin",
+            "att": 80,
+            "def": 77,
+            "mid": 79,
+            "form": 0.4,
+            "points": 40,
+            "logo": "https://media.api-sports.io/football/teams/182.png"
+          },
+          {
+            "id": 186,
+            "name": "FC St. Pauli",
+            "att": 79,
+            "def": 76,
+            "mid": 78,
+            "form": 0.2,
+            "points": 32,
+            "logo": "https://media.api-sports.io/football/teams/186.png"
+          },
+          {
+            "id": 167,
+            "name": "1899 Hoffenheim",
+            "att": 78,
+            "def": 75,
+            "mid": 77,
+            "form": 0.13,
+            "points": 32,
+            "logo": "https://media.api-sports.io/football/teams/167.png"
+          },
+          {
+            "id": 180,
+            "name": "1. FC Heidenheim",
+            "att": 76,
+            "def": 73,
+            "mid": 75,
+            "form": 0.47,
+            "points": 29,
+            "logo": "https://media.api-sports.io/football/teams/180.png"
+          },
+          {
+            "id": 191,
+            "name": "Holstein Kiel",
+            "att": 76,
+            "def": 72,
+            "mid": 74,
+            "form": 0.47,
+            "points": 25,
+            "logo": "https://media.api-sports.io/football/teams/191.png"
+          },
+          {
+            "id": 176,
+            "name": "VfL Bochum",
+            "att": 74,
+            "def": 71,
+            "mid": 73,
+            "form": 0.33,
+            "points": 25,
+            "logo": "https://media.api-sports.io/football/teams/176.png"
+          }
+        ]
+      }
+    ]
+  },
+  "f1": {
+    "season": "2026",
+    "teams": [
+      {
+        "id": "alpine",
+        "name": "Alpine F1 Team",
+        "perf": 88,
+        "reliability": 0.95,
+        "nationality": "French"
+      },
+      {
+        "id": "aston_martin",
+        "name": "Aston Martin",
+        "perf": 88,
+        "reliability": 0.95,
+        "nationality": "British"
+      },
+      {
+        "id": "audi",
+        "name": "Audi",
+        "perf": 82,
+        "reliability": 0.95,
+        "nationality": "German"
+      },
+      {
+        "id": "cadillac",
+        "name": "Cadillac F1 Team",
+        "perf": 82,
+        "reliability": 0.95,
+        "nationality": "American"
+      },
+      {
+        "id": "ferrari",
+        "name": "Ferrari",
+        "perf": 95,
+        "reliability": 0.95,
+        "nationality": "Italian"
+      },
+      {
+        "id": "haas",
+        "name": "Haas F1 Team",
+        "perf": 82,
+        "reliability": 0.95,
+        "nationality": "American"
+      },
+      {
+        "id": "mclaren",
+        "name": "McLaren",
+        "perf": 95,
+        "reliability": 0.95,
+        "nationality": "British"
+      },
+      {
+        "id": "mercedes",
+        "name": "Mercedes",
+        "perf": 95,
+        "reliability": 0.95,
+        "nationality": "German"
+      },
+      {
+        "id": "rb",
+        "name": "RB F1 Team",
+        "perf": 82,
+        "reliability": 0.95,
+        "nationality": "Italian"
+      },
+      {
+        "id": "red_bull",
+        "name": "Red Bull",
+        "perf": 95,
+        "reliability": 0.95,
+        "nationality": "Austrian"
+      },
+      {
+        "id": "williams",
+        "name": "Williams",
+        "perf": 82,
+        "reliability": 0.95,
+        "nationality": "British"
+      }
+    ],
+    "drivers": [
+      {
+        "id": "albon",
+        "name": "Alexander Albon",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "alonso",
+        "name": "Fernando Alonso",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "antonelli",
+        "name": "Andrea Kimi Antonelli",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "bearman",
+        "name": "Oliver Bearman",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "bortoleto",
+        "name": "Gabriel Bortoleto",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "bottas",
+        "name": "Valtteri Bottas",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "colapinto",
+        "name": "Franco Colapinto",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "gasly",
+        "name": "Pierre Gasly",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "hadjar",
+        "name": "Isack Hadjar",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "hamilton",
+        "name": "Lewis Hamilton",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "hulkenberg",
+        "name": "Nico Hülkenberg",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "lawson",
+        "name": "Liam Lawson",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "leclerc",
+        "name": "Charles Leclerc",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "lindblad",
+        "name": "Arvid Lindblad",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "norris",
+        "name": "Lando Norris",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "ocon",
+        "name": "Esteban Ocon",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "piastri",
+        "name": "Oscar Piastri",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "perez",
+        "name": "Sergio Pérez",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "russell",
+        "name": "George Russell",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "sainz",
+        "name": "Carlos Sainz",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "stroll",
+        "name": "Lance Stroll",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      },
+      {
+        "id": "max_verstappen",
+        "name": "Max Verstappen",
+        "teamId": "unknown",
+        "skill": 85,
+        "points": 0
+      }
+    ],
+    "tracks": [
+      {
+        "id": "albert_park",
+        "name": "Albert Park Grand Prix Circuit",
+        "location": "Melbourne",
+        "country": "Australia",
+        "type": "balanced"
+      },
+      {
+        "id": "americas",
+        "name": "Circuit of the Americas",
+        "location": "Austin",
+        "country": "USA",
+        "type": "balanced"
+      },
+      {
+        "id": "bahrain",
+        "name": "Bahrain International Circuit",
+        "location": "Sakhir",
+        "country": "Bahrain",
+        "type": "balanced"
+      },
+      {
+        "id": "baku",
+        "name": "Baku City Circuit",
+        "location": "Baku",
+        "country": "Azerbaijan",
+        "type": "balanced"
+      },
+      {
+        "id": "catalunya",
+        "name": "Circuit de Barcelona-Catalunya",
+        "location": "Barcelona",
+        "country": "Spain",
+        "type": "balanced"
+      },
+      {
+        "id": "hungaroring",
+        "name": "Hungaroring",
+        "location": "Budapest",
+        "country": "Hungary",
+        "type": "balanced"
+      },
+      {
+        "id": "interlagos",
+        "name": "Autódromo José Carlos Pace",
+        "location": "São Paulo",
+        "country": "Brazil",
+        "type": "balanced"
+      },
+      {
+        "id": "jeddah",
+        "name": "Jeddah Corniche Circuit",
+        "location": "Jeddah",
+        "country": "Saudi Arabia",
+        "type": "balanced"
+      },
+      {
+        "id": "losail",
+        "name": "Losail International Circuit",
+        "location": "Lusail",
+        "country": "Qatar",
+        "type": "balanced"
+      },
+      {
+        "id": "madring",
+        "name": "Madring",
+        "location": "Madrid",
+        "country": "Spain",
+        "type": "balanced"
+      },
+      {
+        "id": "marina_bay",
+        "name": "Marina Bay Street Circuit",
+        "location": "Marina Bay",
+        "country": "Singapore",
+        "type": "balanced"
+      },
+      {
+        "id": "miami",
+        "name": "Miami International Autodrome",
+        "location": "Miami",
+        "country": "USA",
+        "type": "balanced"
+      },
+      {
+        "id": "monaco",
+        "name": "Circuit de Monaco",
+        "location": "Monte Carlo",
+        "country": "Monaco",
+        "type": "balanced"
+      },
+      {
+        "id": "monza",
+        "name": "Autodromo Nazionale di Monza",
+        "location": "Monza",
+        "country": "Italy",
+        "type": "balanced"
+      },
+      {
+        "id": "red_bull_ring",
+        "name": "Red Bull Ring",
+        "location": "Spielberg",
+        "country": "Austria",
+        "type": "balanced"
+      },
+      {
+        "id": "rodriguez",
+        "name": "Autódromo Hermanos Rodríguez",
+        "location": "Mexico City",
+        "country": "Mexico",
+        "type": "balanced"
+      },
+      {
+        "id": "shanghai",
+        "name": "Shanghai International Circuit",
+        "location": "Shanghai",
+        "country": "China",
+        "type": "balanced"
+      },
+      {
+        "id": "silverstone",
+        "name": "Silverstone Circuit",
+        "location": "Silverstone",
+        "country": "UK",
+        "type": "balanced"
+      },
+      {
+        "id": "spa",
+        "name": "Circuit de Spa-Francorchamps",
+        "location": "Spa",
+        "country": "Belgium",
+        "type": "balanced"
+      },
+      {
+        "id": "suzuka",
+        "name": "Suzuka Circuit",
+        "location": "Suzuka",
+        "country": "Japan",
+        "type": "balanced"
+      },
+      {
+        "id": "vegas",
+        "name": "Las Vegas Strip Street Circuit",
+        "location": "Las Vegas",
+        "country": "USA",
+        "type": "balanced"
+      },
+      {
+        "id": "villeneuve",
+        "name": "Circuit Gilles Villeneuve",
+        "location": "Montreal",
+        "country": "Canada",
+        "type": "balanced"
+      },
+      {
+        "id": "yas_marina",
+        "name": "Yas Marina Circuit",
+        "location": "Abu Dhabi",
+        "country": "UAE",
+        "type": "balanced"
+      },
+      {
+        "id": "zandvoort",
+        "name": "Circuit Park Zandvoort",
+        "location": "Zandvoort",
+        "country": "Netherlands",
+        "type": "balanced"
+      }
+    ]
+  }
+}
