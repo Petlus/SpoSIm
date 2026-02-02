@@ -358,8 +358,12 @@ async function fetchF1Data() {
     }
 }
 
+const { prisma } = require('./db');
+
+// ... (fetch functions remain same)
+
 async function updateAllData() {
-    console.log("Starting DB Update...");
+    console.log("Starting DB Update (Prisma)...");
     const footballData = await fetchFootballData();
     const fixturesData = await fetchFixtures();
     const f1Data = await fetchF1Data();
@@ -368,246 +372,130 @@ async function updateAllData() {
     const allTeamIds = footballData.flatMap(l => l.teams.map(t => t.id));
     const realPlayers = await fetchRealPlayers(allTeamIds);
 
-    // Prepare Statements
-    const insertLeague = db.prepare('INSERT OR REPLACE INTO leagues (id, name, type, current_season, sport) VALUES (?, ?, ?, ?, ?)');
-
-    // Team Info - only update if team doesn't exist OR if this is NOT the CL
-    const insertTeam = db.prepare('INSERT OR REPLACE INTO teams (id, name, league_id, att, def, mid, prestige, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    const checkTeamExists = db.prepare('SELECT id, league_id FROM teams WHERE id = ?');
-
-    // Standings (Season Data)
-    const insertStanding = db.prepare('INSERT OR REPLACE INTO standings (league_id, team_id, season, group_name, played, wins, draws, losses, gf, ga, points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-
-    // Players
-    // Players
-    const insertPlayer = db.prepare('INSERT INTO players (team_id, name, position, age, rating, number, photo, fitness, is_injured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const countPlayers = db.prepare('SELECT count(*) as c FROM players WHERE team_id = ?');
-
-    const insertF1Team = db.prepare('INSERT OR REPLACE INTO f1_teams (id, name, perf, reliability) VALUES (?, ?, ?, ?)')
-    const insertDriver = db.prepare('INSERT OR REPLACE INTO f1_drivers (id, name, team_id, skill, points) VALUES (?, ?, ?, ?, ?)');
-
-    // Fixtures
-    const insertMatch = db.prepare('INSERT OR REPLACE INTO matches (id, league_id, home_team_id, away_team_id, matchday, status, played_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-
-    // Separate domestic leagues from CL
     const CL_ID = 2001;
     const domesticLeagues = footballData.filter(l => l.id !== CL_ID);
     const championsLeague = footballData.find(l => l.id === CL_ID);
 
+    try {
+        await prisma.$transaction(async (tx) => {
+            // 1. Process DOMESTIC LEAGUES
+            for (const league of domesticLeagues) {
+                console.log(`Saving Domestic League: ${league.name}`);
+                await tx.league.upsert({
+                    where: { id: league.id },
+                    update: { name: league.name },
+                    create: { id: league.id, name: league.name, country: 'Europe', currentSeason: '2024/2025' }
+                });
 
-    const updateTx = db.transaction(() => {
-        // 1. Process DOMESTIC LEAGUES FIRST
-        for (const league of domesticLeagues) {
-            console.log(`Saving Domestic League: ${league.name}`);
-            insertLeague.run(league.id, league.name, 'league', '2024/2025', 'football');
-
-            for (const team of league.teams) {
-                // --- Market Value Heuristic ---
-                let baseMV = 50000000;
-                let eloStart = 1500;
-                const superClubs = ['Manchester City', 'Real Madrid', 'Bayern München', 'Paris Saint-Germain', 'Arsenal', 'Liverpool'];
-                const topClubs = ['Borussia Dortmund', 'Bayer 04 Leverkusen', 'Inter', 'Juventus', 'AC Milan', 'FC Barcelona', 'Atlético Madrid'];
-
-                if (superClubs.some(c => team.name.includes(c))) { baseMV = 900000000; eloStart = 1850; }
-                else if (topClubs.some(c => team.name.includes(c))) { baseMV = 500000000; eloStart = 1700; }
-                else if (league.name === 'Premier League') { baseMV = 200000000; eloStart = 1600; } // PL Money
-
-                // Insert/Update Team with new fields
-                // Note: We use db.prepare directly here to ensure fields are set
-                db.prepare(`
-                    INSERT INTO teams (id, name, league_id, att, def, mid, prestige, logo, market_value, elo_rating)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET 
-                        market_value = COALESCE(market_value, excluded.market_value),
-                        elo_rating = COALESCE(elo_rating, excluded.elo_rating)
-                `).run(team.id, team.name, league.id, team.att, team.def, team.mid, 70, team.logo, baseMV, eloStart);
-
-                // Standings for domestic league
-                insertStanding.run(
-                    league.id,
-                    team.id,
-                    '2024/2025',
-                    team.group,
-                    team.stats.played || 0,
-                    team.stats.wins || 0,
-                    team.stats.draws || 0,
-                    team.stats.losses || 0,
-                    team.stats.gf || 0,
-                    team.stats.ga || 0,
-                    team.points || 0
-                );
-
-                // Insert Players (Real or Mock)
-                const squad = realPlayers[team.id];
-                // Check if we already have players (if not forcing update)
-                const glCount = countPlayers.get(team.id).c;
-
-                if (squad && squad.length > 0 && glCount === 0) {
-                    console.log(`Saving ${squad.length} real players for ${team.name}`);
-
-                    // --- Market Value & Rating Heuristic ---
+                for (const team of league.teams) {
+                    // Calc Ratings / MV
                     let baseMV = 50000000;
                     let eloStart = 1500;
-                    let baseRating = 72; // Default Average
+                    let baseRating = 72;
 
                     const superClubs = ['Manchester City', 'Real Madrid', 'Bayern München', 'Paris Saint-Germain', 'Arsenal', 'Liverpool'];
-                    const topClubs = ['Borussia Dortmund', 'Bayer 04 Leverkusen', 'Inter', 'Juventus', 'AC Milan', 'FC Barcelona', 'Atlético Madrid', 'Tottenham Hotspur', 'Manchester United', 'Chelsea'];
+                    const topClubs = ['Borussia Dortmund', 'Bayer 04 Leverkusen', 'Inter', 'Juventus', 'AC Milan', 'FC Barcelona', 'Atlético Madrid'];
 
                     if (superClubs.some(c => team.name.includes(c) || team.shortName === c)) {
                         baseMV = 900000000 + Math.random() * 200000000;
                         eloStart = 1900;
-                        baseRating = 87; // Stars
+                        baseRating = 87;
                     } else if (topClubs.some(c => team.name.includes(c) || team.shortName === c)) {
                         baseMV = 500000000 + Math.random() * 200000000;
                         eloStart = 1750;
-                        baseRating = 82; // Top Class
+                        baseRating = 82;
                     } else if (['Premier League', 'La Liga', 'Bundesliga', 'Serie A', 'Ligue 1'].includes(league.name)) {
                         baseMV = 150000000 + Math.random() * 100000000;
                         eloStart = 1600;
-                        baseRating = 76; // Solid Pro
+                        baseRating = 76;
                     } else {
-                        // Lower tier / other
                         baseRating = 69;
                     }
 
-                    // Update Team (Added Market Value & Elo)
-                    db.prepare(`
-                        UPDATE teams SET 
-                            market_value = ?, 
-                            elo_rating = ?
-                        WHERE id = ?
-                    `).run(baseMV, eloStart, team.id);
-
-                    for (const p of squad) {
-                        // Calibrate Rating: Base + Variance (-4 to +5)
-                        // Positional bias: FWDs slightly higher? No, keep simple.
-                        const calibratedRating = Math.floor(baseRating + (Math.random() * 9 - 4));
-
-                        insertPlayer.run(
-                            team.id,
-                            p.name,
-                            p.position,
-                            p.age,
-                            calibratedRating, // Use new calibrated rating
-                            p.number,
-                            p.photo,
-                            100, // fitness
-                            0    // is_injured
-                        );
-                    }
-                } else if (glCount < 11) {
-                    const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
-                    for (let i = 0; i < 25; i++) {
-                        const pos = positions[i % positions.length];
-                        const rating = Math.floor(team.mid + (Math.random() * 10 - 5));
-                        const name = `${pos} Player ${i + 1}`;
-                        insertPlayer.run(team.id, name, pos, 18 + Math.floor(Math.random() * 15), rating, null, null, 100, 0);
-                    }
-                }
-            }
-        }
-
-        // 2. Process CHAMPIONS LEAGUE - STANDINGS ONLY (don't change team's league_id)
-        if (championsLeague) {
-            console.log(`Saving Champions League Standings (${championsLeague.teams.length} teams)...`);
-            insertLeague.run(CL_ID, 'Champions League', 'tournament', '2024/2025', 'football');
-
-            for (const team of championsLeague.teams) {
-                // Check if team already exists from domestic league
-                const existingTeam = checkTeamExists.get(team.id);
-
-                if (!existingTeam) {
-                    // Team not in any domestic league we track (e.g., other countries)
-                    // Insert with CL as their "home" league
-                    insertTeam.run(
-                        team.id,
-                        team.name,
-                        CL_ID, // Only for teams we don't have domestic data for
-                        team.att,
-                        team.def,
+                    team.def,
                         team.mid,
                         team.mid,
                         team.logo
                     );
 
-                    // Generate players for these teams too
-                    const pCount = countPlayers.get(team.id).c;
-                    if (pCount < 11) {
-                        const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
-                        for (let i = 0; i < 25; i++) {
-                            const pos = positions[i % positions.length];
-                            const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
-                            insertPlayer.run(team.id, `${pos} Player ${i + 1}`, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
-                        }
-                    }
-                }
+        // Generate players for these teams too
+        const pCount = countPlayers.get(team.id).c;
+        if (pCount < 11) {
+            const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
+            for (let i = 0; i < 25; i++) {
+                const pos = positions[i % positions.length];
+                const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
+                insertPlayer.run(team.id, `${pos} Player ${i + 1}`, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
+            }
+        }
+    }
 
                 // Always insert CL standings (separate from domestic)
                 insertStanding.run(
-                    CL_ID, // CL league ID for standings
-                    team.id,
-                    '2024/2025',
-                    team.group, // GROUP A, GROUP B, etc.
-                    team.stats.played || 0,
-                    team.stats.wins || 0,
-                    team.stats.draws || 0,
-                    team.stats.losses || 0,
-                    team.stats.gf || 0,
-                    team.stats.ga || 0,
-                    team.points || 0
-                );
-            }
+        CL_ID, // CL league ID for standings
+        team.id,
+        '2024/2025',
+        team.group, // GROUP A, GROUP B, etc.
+        team.stats.played || 0,
+        team.stats.wins || 0,
+        team.stats.draws || 0,
+        team.stats.losses || 0,
+        team.stats.gf || 0,
+        team.stats.ga || 0,
+        team.points || 0
+    );
+}
         }
 
-        // F1
-        if (f1Data) {
-            console.log("Saving F1 Data...");
-            insertF1Team.run("unknown", "Unattached", 80, 0.9);
+// F1
+if (f1Data) {
+    console.log("Saving F1 Data...");
+    insertF1Team.run("unknown", "Unattached", 80, 0.9);
 
-            for (const team of f1Data.teams) {
-                insertF1Team.run(
-                    team.id,
-                    team.name,
-                    team.perf,
-                    team.reliability
-                );
-            }
+    for (const team of f1Data.teams) {
+        insertF1Team.run(
+            team.id,
+            team.name,
+            team.perf,
+            team.reliability
+        );
+    }
 
-            for (const driver of f1Data.drivers) {
-                let tid = driver.teamId;
-                const teamExists = f1Data.teams.some(t => t.id === tid);
-                if (!teamExists && tid !== "unknown") {
-                    insertF1Team.run(tid, "Team " + tid, 85, 0.9);
-                }
-
-                insertDriver.run(
-                    driver.id,
-                    driver.name,
-                    tid,
-                    driver.skill,
-                    driver.points
-                );
-            }
+    for (const driver of f1Data.drivers) {
+        let tid = driver.teamId;
+        const teamExists = f1Data.teams.some(t => t.id === tid);
+        if (!teamExists && tid !== "unknown") {
+            insertF1Team.run(tid, "Team " + tid, 85, 0.9);
         }
 
-        // Save Fixtures
-        console.log(`Saving ${fixturesData.length} fixtures...`);
-        for (const fix of fixturesData) {
-            insertMatch.run(
-                fix.id,
-                fix.leagueId,
-                fix.homeTeamId,
-                fix.awayTeamId,
-                fix.matchday,
-                fix.status,
-                fix.utcDate
-            );
-        }
+        insertDriver.run(
+            driver.id,
+            driver.name,
+            tid,
+            driver.skill,
+            driver.points
+        );
+    }
+}
+
+// Save Fixtures
+console.log(`Saving ${fixturesData.length} fixtures...`);
+for (const fix of fixturesData) {
+    insertMatch.run(
+        fix.id,
+        fix.leagueId,
+        fix.homeTeamId,
+        fix.awayTeamId,
+        fix.matchday,
+        fix.status,
+        fix.utcDate
+    );
+}
     });
 
-    updateTx();
-    console.log("DB Update Complete.");
-    return { success: true };
+updateTx();
+console.log("DB Update Complete.");
+return { success: true };
 }
 
 module.exports = { updateAllData };

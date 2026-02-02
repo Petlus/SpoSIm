@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:c:/Users/david/Desktop/SpoSim/data/sports.db"
+}
+
+model League {
+  id            Int      @id @default(autoincrement())
+  name          String
+  type          String   @default("league")
+  country       String?
+  currentSeason String?  @map("current_season")
+  sport         String   @default("football")
+  teams         Team[]
+  matches       Match[]
+  stages        TournamentStage[]
+  @@map("leagues")
+}
+
+model Team {
+  id             Int       @id @default(autoincrement())
+  name           String
+  shortName      String?   @map("short_name")
+  leagueId       Int?      @map("league_id")
+  league         League?   @relation(fields: [leagueId], references: [id])
+  att            Int?
+  def            Int?
+  mid            Int?
+  prestige       Int       @default(50)
+  budget         Int       @default(10000000)
+  marketValue    Float?    @default(50000000) @map("market_value")
+  eloRating      Int?      @default(1500) @map("elo_rating")
+  logo           String?
+  isUserControlled Boolean @default(false) @map("is_user_controlled")
+  
+  players        Player[]
+  homeMatches    Match[]   @relation("HomeTeam")
+  awayMatches    Match[]   @relation("AwayTeam")
+  standings      Standing[]
+  userManager    UserManager[]
+  finances       Finance?
+
+  @@map("teams")
+}
+
+model Player {
+  id             Int      @id @default(autoincrement())
+  teamId         Int?     @map("team_id")
+  team           Team?    @relation(fields: [teamId], references: [id])
+  name           String
+  position       String?
+  age            Int?
+  rating         Int      @default(70)
+  number         Int?
+  photo          String?
+  fitness        Int      @default(100)
+  isInjured      Boolean  @default(false) @map("is_injured")
+  form           Float    @default(6.0)
+  goals          Int      @default(0)
+  assists        Int      @default(0)
+  yellowCards    Int      @default(0) @map("yellow_cards")
+  redCards       Int      @default(0) @map("red_cards")
+  suspendedUntil Int?     @map("suspended_until")
+  marketValue    Float?   @map("market_value")
+
+  @@map("players")
+}
+
+model Match {
+  id               Int           @id @default(autoincrement())
+  leagueId         Int?          @map("league_id")
+  league           League?       @relation(fields: [leagueId], references: [id])
+  homeTeamId       Int?          @map("home_team_id")
+  homeTeam         Team?         @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId       Int?          @map("away_team_id")
+  awayTeam         Team?         @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeScore        Int?          @map("home_score")
+  awayScore        Int?          @map("away_score")
+  penaltyHomeScore Int?          @map("penalty_home_score")
+  penaltyAwayScore Int?          @map("penalty_away_score")
+  matchday         Int?
+  stageId          Int?          @map("stage_id")
+  status           String        @default("scheduled")
+  weather          String?
+  attendance       Int?
+  playedAt         DateTime?     @map("played_at")
+  events           MatchEvent[]
+
+  @@map("matches")
+}
+
+model MatchEvent {
+  id          Int     @id @default(autoincrement())
+  matchId     Int?    @map("match_id")
+  match       Match?  @relation(fields: [matchId], references: [id])
+  teamId      Int?    @map("team_id")
+  playerId    Int?    @map("player_id")
+  type        String?
+  minute      Int?
+  description String?
+
+  @@map("match_events")
+}
+
+model Standing {
+  leagueId  Int     @map("league_id")
+  teamId    Int     @map("team_id")
+  team      Team    @relation(fields: [teamId], references: [id])
+  season    String
+  groupName String  @map("group_name")
+  played    Int     @default(0)
+  wins      Int     @default(0)
+  draws     Int     @default(0)
+  losses    Int     @default(0)
+  gf        Int     @default(0)
+  ga        Int     @default(0)
+  points    Int     @default(0)
+
+  @@id([leagueId, teamId, season, groupName])
+  @@map("standings")
+}
+
+model SeasonHistory {
+  id                Int     @id @default(autoincrement())
+  leagueId          Int?    @map("league_id")
+  season            String?
+  championTeamId    Int?    @map("champion_team_id")
+  topScorerPlayerId Int?    @map("top_scorer_player_id")
+  @@map("season_history")
+}
+
+// F1 Models
+model F1Team {
+  id          String      @id
+  name        String
+  perf        Int?
+  reliability Float?
+  budget      Int?
+  drivers     F1Driver[]
+
+  @@map("f1_teams")
+}
+
+model F1Driver {
+  id      String    @id
+  name    String
+  teamId  String?   @map("team_id")
+  team    F1Team?   @relation(fields: [teamId], references: [id])
+  skill   Int?
+  points  Int       @default(0)
+  wins    Int       @default(0)
+  podiums Int       @default(0)
+  results F1Result[]
+
+  @@map("f1_drivers")
+}
+
+model F1Circuit {
+  id         String  @id
+  name       String
+  country    String?
+  type       String?
+  difficulty Int?
+
+  @@map("f1_circuits")
+}
+
+model F1Result {
+  id         Int       @id @default(autoincrement())
+  raceId     String?   @map("race_id")
+  driverId   String?   @map("driver_id")
+  driver     F1Driver? @relation(fields: [driverId], references: [id])
+  position   Int?
+  points     Int?
+  fastestLap Boolean?  @map("fastest_lap")
+
+  @@map("f1_results")
+}
+
+model TournamentStage {
+  id               Int               @id @default(autoincrement())
+  tournamentId     Int?              @map("tournament_id")
+  tournament       League?           @relation(fields: [tournamentId], references: [id])
+  name             String?
+  type             String?
+  isTwoLegged      Boolean?          @default(false) @map("is_two_legged")
+  hasAwayGoalsRule Boolean?          @default(false) @map("has_away_goals_rule")
+  groups           TournamentGroup[]
+
+  @@map("tournament_stages")
+}
+
+model TournamentGroup {
+  id      Int              @id @default(autoincrement())
+  stageId Int?             @map("stage_id")
+  stage   TournamentStage? @relation(fields: [stageId], references: [id])
+  name    String?
+
+  @@map("tournament_groups")
+}
+
+model NationalTeam {
+  id      Int    @id
+  name    String
+  ranking Int?
+  att     Int?
+  def     Int?
+  mid     Int?
+
+  @@map("national_teams")
+}
+
+model UserManager {
+  id              Int       @id @default(autoincrement())
+  name            String?
+  teamId          Int?      @map("team_id")
+  team            Team?     @relation(fields: [teamId], references: [id])
+  reputation      Int       @default(0)
+  careerStartDate DateTime? @map("career_start_date")
+
+  @@map("user_manager")
+}
+
+model Finance {
+  teamId         Int  @id @map("team_id")
+  team           Team @relation(fields: [teamId], references: [id])
+  balance        Int  @default(50000000)
+  weeklyWages    Int  @default(0) @map("weekly_wages")
+  transferBudget Int  @default(20000000) @map("transfer_budget")
+
+  @@map("finances")
+}
