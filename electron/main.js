@@ -1,6 +1,9 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const db = require('./db'); // SQLite
+const axios = require('axios');
+const ollamaManager = require('./ollama_manager');
+const aiBridge = require('./ai_bridge');
 
 // Basic dev detection
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
@@ -436,12 +439,12 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
         const updateStanding = db.prepare(`
             UPDATE standings 
             SET played = played + 1,
-                wins = wins + ?,
-                draws = draws + ?,
-                losses = losses + ?,
-                gf = gf + ?,
-                ga = ga + ?,
-                points = points + ?
+            wins = wins + ?,
+            draws = draws + ?,
+            losses = losses + ?,
+            gf = gf + ?,
+            ga = ga + ?,
+            points = points + ?
             WHERE team_id = ? AND season = '2024/2025'
         `);
 
@@ -526,6 +529,66 @@ ipcMain.handle('simulate-match', (event, { homeId, awayId }) => {
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
     return footballSim.simulateMatch(home, away);
+});
+
+ipcMain.handle('check-ollama-status', async () => {
+    console.log("Checking Ollama status...");
+    try {
+        const installed = await ollamaManager.checkInstalled();
+        console.log("Ollama Installed:", installed);
+        const running = await ollamaManager.checkRunning();
+        console.log("Ollama Running:", running);
+        return { installed, running, downloadUrl: ollamaManager.getDownloadUrl() };
+    } catch (e) {
+        console.error("Status Check Error:", e);
+        return { installed: false, running: false, error: e.message };
+    }
+});
+
+ipcMain.handle('start-ollama', async () => {
+    return await ollamaManager.startService();
+});
+
+ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
+    try {
+        const home = db.prepare('SELECT * FROM teams WHERE id = ?').get(homeId);
+        const away = db.prepare('SELECT * FROM teams WHERE id = ?').get(awayId);
+
+        if (!home || !away) return { error: "Teams not found" };
+
+        const homeStrength = calculateTeamStrength(homeId);
+        const awayStrength = calculateTeamStrength(awayId);
+
+        const homeDetails = {
+            ...homeStrength,
+            form: getTeamForm(homeId, 5)
+        };
+        const awayDetails = {
+            ...awayStrength,
+            form: getTeamForm(awayId, 5)
+        };
+
+        const h2h = db.prepare(`SELECT home_score, away_score FROM matches WHERE (home_team_id = ? AND away_team_id = ?) OR (home_team_id = ? AND away_team_id = ?) ORDER BY played_at DESC LIMIT 5`).all(homeId, awayId, awayId, homeId);
+
+        // Fetch Injuries
+        const homeInjuries = db.prepare('SELECT name FROM players WHERE team_id = ? AND is_injured = 1').all(homeId).map(p => p.name);
+        const awayInjuries = db.prepare('SELECT name FROM players WHERE team_id = ? AND is_injured = 1').all(awayId).map(p => p.name);
+
+        let injuryText = "Keine";
+        if (homeInjuries.length > 0 || awayInjuries.length > 0) {
+            injuryText = `${home.name}: ${homeInjuries.join(', ') || 'Keine'}; ${away.name}: ${awayInjuries.join(', ') || 'Keine'}`;
+        }
+
+        const context = {
+            home, away, odds, homeDetails, awayDetails, h2h, injuries: injuryText
+        };
+
+        return await aiBridge.generateExpertAnalysis(context);
+
+    } catch (e) {
+        console.error("AI Prediction Error:", e);
+        return { error: e.message };
+    }
 });
 
 ipcMain.handle('simulate-f1-race', (event, trackId) => {

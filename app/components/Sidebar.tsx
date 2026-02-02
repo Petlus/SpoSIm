@@ -11,7 +11,7 @@ export function Sidebar() {
         { name: 'Home', icon: Home, path: '/', disabled: false },
         { name: 'Football', icon: Trophy, path: '/football', disabled: false },
         { name: 'Formula 1', icon: Zap, path: '/f1', disabled: true, badge: 'Soon' },
-        { name: 'Manager', icon: Briefcase, path: '/manager', disabled: false },
+        { name: 'Manager', icon: Briefcase, path: '/manager', disabled: true, badge: 'Soon' },
     ];
 
     const isActive = (p: string) => pathname === p || pathname.startsWith(`${p}/`);

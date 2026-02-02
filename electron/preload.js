@@ -11,4 +11,7 @@ contextBridge.exposeInMainWorld('electron', {
     getMatchOdds: (homeId, awayId) => ipcRenderer.invoke('get-match-odds', { homeId, awayId }),
     getAdvancedAnalysis: (homeId, awayId) => ipcRenderer.invoke('get-advanced-analysis', { homeId, awayId }),
     getTeamDetails: (teamId) => ipcRenderer.invoke('get-team-details', teamId),
+    checkOllamaStatus: () => ipcRenderer.invoke('check-ollama-status'),
+    startOllama: () => ipcRenderer.invoke('start-ollama'),
+    getAiPrediction: (homeId, awayId, odds) => ipcRenderer.invoke('get-ai-prediction', { homeId, awayId, odds }),
 });

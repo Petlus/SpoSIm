@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit } from 'lucide-react';
 
 // Form Dot Component
 const FormDot = ({ result }: { result: string }) => {
@@ -43,6 +43,13 @@ export default function LeaguePage() {
     const [insightsOpen, setInsightsOpen] = useState(false);
     const [insightsData, setInsightsData] = useState<any>(null);
     const [loadingInsights, setLoadingInsights] = useState(false);
+
+    // AI State
+    const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'unknown' | 'not_installed' | 'offline' | 'ready'>('checking');
+    const [downloadUrl, setDownloadUrl] = useState('');
+    const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+    const [loadingAi, setLoadingAi] = useState(false);
+    const [typewriterText, setTypewriterText] = useState('');
 
     useEffect(() => {
         if (leagueId) loadData();
@@ -134,6 +141,66 @@ export default function LeaguePage() {
         // @ts-ignore
         await window.electron.simulateMatchday(leagueId);
         setTimeout(() => { loadData(); setSimulating(false); }, 800);
+    };
+
+    // Typewriter effect
+    useEffect(() => {
+        if (!aiAnalysis) {
+            setTypewriterText('');
+            return;
+        }
+        let i = 0;
+        const interval = setInterval(() => {
+            setTypewriterText(aiAnalysis.substring(0, i));
+            i++;
+            if (i > aiAnalysis.length) clearInterval(interval);
+        }, 15); // Speed
+        return () => clearInterval(interval);
+    }, [aiAnalysis]);
+
+    const checkOllama = async () => {
+        setOllamaStatus('checking');
+        // @ts-ignore
+        const status = await window.electron.checkOllamaStatus();
+        if (!status.installed) {
+            setOllamaStatus('not_installed');
+            setDownloadUrl(status.downloadUrl || 'https://ollama.com');
+        } else if (!status.running) {
+            setOllamaStatus('offline');
+        } else {
+            setOllamaStatus('ready');
+        }
+    };
+
+    const startOllamaService = async () => {
+        setLoadingAi(true);
+        // @ts-ignore
+        await window.electron.startOllama();
+        // Check again after a delay
+        setTimeout(async () => {
+            await checkOllama();
+            setLoadingAi(false);
+        }, 3000);
+    };
+
+    const askAi = async () => {
+        if (!insightsData) return;
+        setLoadingAi(true);
+        setAiAnalysis(null);
+
+        // @ts-ignore
+        const res = await window.electron.getAiPrediction(
+            insightsData.home.id,
+            insightsData.away.id,
+            insightsData.odds // Pass the Odds!
+        );
+
+        setLoadingAi(false);
+        if (res.success) {
+            setAiAnalysis(res.text); // aiBridge returns .text
+        } else {
+            setAiAnalysis("Error: " + res.error);
+        }
     };
 
     if (loading) return <div className="p-10 text-slate-400 flex items-center gap-3"><RefreshCw className="animate-spin" size={18} /> Loading...</div>;
@@ -338,7 +405,10 @@ export default function LeaguePage() {
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end" onClick={() => setInsightsOpen(false)}>
                     <div className="w-full max-w-md bg-slate-900 border-l border-slate-700 h-full overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-white">Match Insights</h2>
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                Match Insights
+                                {aiAnalysis && <Sparkles size={16} className="text-purple-400 animate-pulse" />}
+                            </h2>
                             <button onClick={() => setInsightsOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
                         </div>
 
@@ -404,6 +474,75 @@ export default function LeaguePage() {
                                             ))}
                                         </div>
                                     ) : <p className="text-slate-600">No previous meetings</p>}
+                                </div>
+
+                                {/* AI Analysis */}
+                                <div className="glass-panel p-4 border-t border-purple-500/30 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-purple-900/20">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                                    <div className="flex items-center justify-between mb-3 relative z-10">
+                                        <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                                            <Sparkles size={14} className="text-purple-400" /> AI Analyst (Beta)
+                                        </h3>
+
+                                        {/* Status Aware Buttons */}
+                                        {!aiAnalysis && !loadingAi && (
+                                            <>
+                                                {ollamaStatus === 'checking' && <span className="text-xs text-slate-500">Checking...</span>}
+
+                                                {ollamaStatus === 'not_installed' && (
+                                                    <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded flex items-center gap-1.5 transition-all">
+                                                        <Activity size={14} /> Install Ollama
+                                                    </a>
+                                                )}
+
+                                                {ollamaStatus === 'offline' && (
+                                                    <button onClick={startOllamaService} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded flex items-center gap-1.5 transition-all">
+                                                        <Activity size={14} /> Start Service
+                                                    </button>
+                                                )}
+
+                                                {(ollamaStatus === 'ready' || ollamaStatus === 'unknown') && (
+                                                    <button onClick={askAi} className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded shadow-lg transition-all flex items-center gap-1.5 hover:scale-105 active:scale-95 border border-purple-500/20">
+                                                        <BrainCircuit size={14} /> Analyze Match
+                                                    </button>
+                                                )}
+
+                                                <button onClick={checkOllama} className="ml-2 text-slate-600 hover:text-slate-400" title="Check Status"><RefreshCw size={12} /></button>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {loadingAi && (
+                                        <div className="p-6 text-center text-purple-300 flex flex-col items-center gap-3">
+                                            <div className="relative">
+                                                <div className="absolute inset-0 bg-purple-500/30 rounded-full animate-ping"></div>
+                                                <BrainCircuit className="relative z-10 text-purple-400 animate-pulse" size={32} />
+                                            </div>
+                                            <span className="text-xs font-mono font-medium tracking-wide">Analysing 1000 Simulations...</span>
+                                        </div>
+                                    )}
+
+                                    {aiAnalysis && (
+                                        <div className="relative group">
+                                            <div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap bg-slate-900/40 backdrop-blur-md p-5 rounded-lg border border-purple-500/20 font-sans shadow-xl relative z-10">
+                                                {/* Expert Badge */}
+                                                <div className="absolute -top-3 -right-3 bg-purple-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded shadow-lg flex items-center gap-1 transform rotate-2">
+                                                    <Trophy size={10} /> Certified
+                                                </div>
+
+                                                <div className="font-mono text-xs opacity-80 mb-2 text-purple-300 uppercase tracking-widest">Analyst Report</div>
+                                                {typewriterText}
+                                                <span className="animate-pulse inline-block w-1.5 h-3.5 bg-purple-500 ml-1 align-middle"></span>
+                                            </div>
+
+                                            {/* Value Alert Badge if High Value detected */}
+                                            {(aiAnalysis.includes("Value-") || aiAnalysis.includes("Value ")) && (
+                                                <div className="mt-2 flex items-center gap-2 text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded border border-amber-500/20 animate-pulse">
+                                                    <Sparkles size={12} /> High Value Opportunity Detected
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ) : null}
