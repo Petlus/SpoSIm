@@ -46,7 +46,9 @@ const schema = `
         name TEXT NOT NULL,
         position TEXT, -- GK, DEF, MID, FWD
         age INTEGER,
-        skill INTEGER,
+        rating INTEGER DEFAULT 70,
+        number INTEGER,
+        photo TEXT,
         fitness INTEGER DEFAULT 100,
         is_injured BOOLEAN DEFAULT 0,
         form REAL DEFAULT 6.0,

@@ -272,6 +272,7 @@ async function fetchRealPlayers(teamIds) {
                     age: p.age,
                     number: p.number,
                     position: mapPosition(p.position), // GK, DEF, MID, FWD
+                    rating: Math.floor(Math.random() * (94 - 68) + 68), // Mock Rating 68-94
                     photo: p.photo
                 }));
                 allPlayers[teamId] = players;
@@ -363,6 +364,10 @@ async function updateAllData() {
     const fixturesData = await fetchFixtures();
     const f1Data = await fetchF1Data();
 
+    // Fetch Real Players
+    const allTeamIds = footballData.flatMap(l => l.teams.map(t => t.id));
+    const realPlayers = await fetchRealPlayers(allTeamIds);
+
     // Prepare Statements
     const insertLeague = db.prepare('INSERT OR REPLACE INTO leagues (id, name, type, current_season, sport) VALUES (?, ?, ?, ?, ?)');
 
@@ -374,7 +379,8 @@ async function updateAllData() {
     const insertStanding = db.prepare('INSERT OR REPLACE INTO standings (league_id, team_id, season, group_name, played, wins, draws, losses, gf, ga, points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
     // Players
-    const insertPlayer = db.prepare('INSERT INTO players (team_id, name, position, age, skill, fitness, is_injured) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    // Players
+    const insertPlayer = db.prepare('INSERT INTO players (team_id, name, position, age, rating, number, photo, fitness, is_injured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const countPlayers = db.prepare('SELECT count(*) as c FROM players WHERE team_id = ?');
 
     const insertF1Team = db.prepare('INSERT OR REPLACE INTO f1_teams (id, name, perf, reliability) VALUES (?, ?, ?, ?)')
@@ -423,15 +429,33 @@ async function updateAllData() {
                     team.points || 0
                 );
 
-                // Generate Mock Players if None Exist
-                const pCount = countPlayers.get(team.id).c;
-                if (pCount < 11) {
+                // Insert Players (Real or Mock)
+                const squad = realPlayers[team.id];
+                // Check if we already have players (if not forcing update)
+                const glCount = countPlayers.get(team.id).c;
+
+                if (squad && squad.length > 0 && glCount === 0) {
+                    console.log(`Saving ${squad.length} real players for ${team.name}`);
+                    for (const p of squad) {
+                        insertPlayer.run(
+                            team.id,
+                            p.name,
+                            p.position,
+                            p.age || 25,
+                            p.rating || 70,
+                            p.number,
+                            p.photo,
+                            100,
+                            0
+                        );
+                    }
+                } else if (glCount < 11) {
                     const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
                     for (let i = 0; i < 25; i++) {
                         const pos = positions[i % positions.length];
-                        const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
+                        const rating = Math.floor(team.mid + (Math.random() * 10 - 5));
                         const name = `${pos} Player ${i + 1}`;
-                        insertPlayer.run(team.id, name, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
+                        insertPlayer.run(team.id, name, pos, 18 + Math.floor(Math.random() * 15), rating, null, null, 100, 0);
                     }
                 }
             }
