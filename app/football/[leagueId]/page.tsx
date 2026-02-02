@@ -160,15 +160,24 @@ export default function LeaguePage() {
 
     const checkOllama = async () => {
         setOllamaStatus('checking');
-        // @ts-ignore
-        const status = await window.electron.checkOllamaStatus();
-        if (!status.installed) {
-            setOllamaStatus('not_installed');
-            setDownloadUrl(status.downloadUrl || 'https://ollama.com');
-        } else if (!status.running) {
-            setOllamaStatus('offline');
-        } else {
-            setOllamaStatus('ready');
+        try {
+            // Race against a frontend timeout in case IPC hangs
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000));
+            // @ts-ignore
+            const result = await Promise.race([window.electron.checkOllamaStatus(), timeoutPromise]);
+
+            if (!result.installed) {
+                setOllamaStatus('not_installed');
+                setDownloadUrl(result.downloadUrl || 'https://ollama.com');
+            } else if (!result.running) {
+                setOllamaStatus('offline');
+            } else {
+                setOllamaStatus('ready');
+            }
+        } catch (error) {
+            console.error("Ollama Check Failed:", error);
+            // Fallback: Assume offline or not installed if it fails, don't leave hanging
+            setOllamaStatus('unknown'); // Or 'offline' to show start button at least
         }
     };
 
@@ -199,7 +208,7 @@ export default function LeaguePage() {
         if (res.success) {
             setAiAnalysis(res.text); // aiBridge returns .text
         } else {
-            setAiAnalysis("Error: " + res.error);
+            setAiAnalysis(`Error: ${res.error || "Unknown AI Error. Check Console."}`);
         }
     };
 
