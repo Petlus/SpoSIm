@@ -6,28 +6,81 @@ const footballSim = {};
  * @param {Object} away Team object
  */
 footballSim.simulateMatch = (home, away) => {
-    // Basic Algo: Strength + Form + Random + HomeAdvantage
-    const homeStr = (home.att + home.def + home.mid) / 3 * home.form * 1.05; // 5% Home bonus
-    const awayStr = (away.att + away.def + away.mid) / 3 * away.form;
+    // Basic Algo: Strength + Form + HomeAdvantage
+    // But now we calculate "Match Control" per interval
+    const homeStr = (home.att + home.mid) / 2 * home.form * 1.05;
+    const awayStr = (away.att + away.mid) / 2 * away.form;
 
-    const diff = homeStr - awayStr;
+    // Defense Factors
+    const homeDef = home.def * home.form * 1.05;
+    const awayDef = away.def * away.form;
+
     let homeGoals = 0;
     let awayGoals = 0;
+    const events = [];
+    const EVENT_TYPES = { GOAL: 'goal', YELLOW: 'card_yellow', RED: 'card_red', INJURY: 'injury' };
 
-    // Base goals based on strength
-    const baseGoals = 2.5;
+    // Simulate 9 intervals of 10 minutes
+    for (let i = 1; i <= 9; i++) {
+        const time = i * 10;
 
-    // Poisson-ish simulation
-    // If Home is stronger (diff > 0), they are likely to score more
-    const homeExp = Math.max(0.5, baseGoals + (diff / 10));
-    const awayExp = Math.max(0.5, baseGoals - (diff / 10));
+        // 1. Possession Phase
+        // Random fluctuation + midfield strength
+        const rand = Math.random();
+        const homePossessionChance = (homeStr / (homeStr + awayStr)) + (rand * 0.2 - 0.1);
 
-    homeGoals = Math.floor(Math.random() * (homeExp * 1.5)); // Random variance
-    awayGoals = Math.floor(Math.random() * (awayExp * 1.5));
+        const attackingTeam = homePossessionChance > 0.5 ? 'home' : 'away';
 
-    // Cap goals reasonable (0-9)
-    homeGoals = Math.min(9, homeGoals);
-    awayGoals = Math.min(9, awayGoals);
+        // 2. Chance Creation vs Defense
+        let goalChance = 0;
+        if (attackingTeam === 'home') {
+            // Home attacking
+            const attackPower = homeStr; // simplified
+            const defPower = awayDef;
+            // Chance to create a shot
+            if (Math.random() < (attackPower / (attackPower + defPower)) * 0.4) {
+                // Shot created -> Check for Goal
+                if (Math.random() < 0.33) { // 33% conversion rate placeholder
+                    homeGoals++;
+                    events.push({
+                        type: EVENT_TYPES.GOAL,
+                        teamId: home.id,
+                        minute: time - Math.floor(Math.random() * 9),
+                        description: 'Goal'
+                    });
+                }
+            }
+        } else {
+            // Away attacking
+            const attackPower = awayStr;
+            const defPower = homeDef;
+            if (Math.random() < (attackPower / (attackPower + defPower)) * 0.4) {
+                if (Math.random() < 0.33) {
+                    awayGoals++;
+                    events.push({
+                        type: EVENT_TYPES.GOAL,
+                        teamId: away.id,
+                        minute: time - Math.floor(Math.random() * 9),
+                        description: 'Goal'
+                    });
+                }
+            }
+        }
+
+        // 3. Other Events (Cards/Injuries) - Lower probability per interval
+        if (Math.random() < 0.04) {
+            const victim = Math.random() > 0.5 ? 'home' : 'away';
+            events.push({
+                type: EVENT_TYPES.YELLOW,
+                teamId: victim === 'home' ? home.id : away.id,
+                minute: time,
+                description: 'Yellow Card'
+            });
+        }
+    }
+
+    // Sort events by minute
+    events.sort((a, b) => a.minute - b.minute);
 
     return {
         homeId: home.id,
@@ -35,7 +88,27 @@ footballSim.simulateMatch = (home, away) => {
         score: `${homeGoals}-${awayGoals}`,
         homeGoals,
         awayGoals,
-        winner: homeGoals > awayGoals ? home.id : (awayGoals > homeGoals ? away.id : 'draw')
+        winner: homeGoals > awayGoals ? home.id : (awayGoals > homeGoals ? away.id : 'draw'),
+        events
+    };
+};
+
+footballSim.simulateMatchOdds = (home, away, iterations = 100) => {
+    let homeWins = 0;
+    let draws = 0;
+    let awayWins = 0;
+
+    for (let i = 0; i < iterations; i++) {
+        const res = footballSim.simulateMatch(home, away);
+        if (res.homeGoals > res.awayGoals) homeWins++;
+        else if (res.awayGoals > res.homeGoals) awayWins++;
+        else draws++;
+    }
+
+    return {
+        homeWinProb: Math.round((homeWins / iterations) * 100),
+        drawProb: Math.round((draws / iterations) * 100),
+        awayWinProb: Math.round((awayWins / iterations) * 100)
     };
 };
 

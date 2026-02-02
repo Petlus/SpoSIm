@@ -53,6 +53,9 @@ const schema = `
         form REAL DEFAULT 6.0,
         goals INTEGER DEFAULT 0,
         assists INTEGER DEFAULT 0,
+        yellow_cards INTEGER DEFAULT 0,
+        red_cards INTEGER DEFAULT 0,
+        suspended_until INTEGER, -- Matchday ID
         FOREIGN KEY(team_id) REFERENCES teams(id)
     );
 
@@ -64,8 +67,10 @@ const schema = `
         away_team_id INTEGER,
         home_score INTEGER,
         away_score INTEGER,
+        penalty_home_score INTEGER,
+        penalty_away_score INTEGER,
         matchday INTEGER,
-        stage_id INTEGER, -- Link to tournament_stages
+        stage_id INTEGER, 
         status TEXT DEFAULT 'scheduled', 
         weather TEXT,
         attendance INTEGER,
@@ -73,11 +78,22 @@ const schema = `
         FOREIGN KEY(league_id) REFERENCES leagues(id)
     );
 
+    CREATE TABLE IF NOT EXISTS match_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id INTEGER,
+        team_id INTEGER,
+        player_id INTEGER,
+        type TEXT, -- 'goal', 'card_yellow', 'card_red', 'injury', 'sub'
+        minute INTEGER,
+        description TEXT,
+        FOREIGN KEY(match_id) REFERENCES matches(id)
+    );
+
     CREATE TABLE IF NOT EXISTS standings (
         league_id INTEGER,
         team_id INTEGER,
         season TEXT,
-        group_name TEXT, -- 'Group A', 'Group B' etc.
+        group_name TEXT, 
         played INTEGER DEFAULT 0,
         wins INTEGER DEFAULT 0,
         draws INTEGER DEFAULT 0,
@@ -127,7 +143,7 @@ const schema = `
 
     CREATE TABLE IF NOT EXISTS f1_results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        race_id TEXT, -- e.g. '2026_bahrain'
+        race_id TEXT, 
         driver_id TEXT,
         position INTEGER,
         points INTEGER,
@@ -139,8 +155,8 @@ const schema = `
     CREATE TABLE IF NOT EXISTS tournament_stages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tournament_id INTEGER,
-        name TEXT, -- 'Group Stage', 'Round of 16'
-        type TEXT, -- 'group', 'knockout'
+        name TEXT, 
+        type TEXT, 
         is_two_legged BOOLEAN DEFAULT 0,
         has_away_goals_rule BOOLEAN DEFAULT 0,
         FOREIGN KEY(tournament_id) REFERENCES leagues(id)
@@ -149,7 +165,7 @@ const schema = `
     CREATE TABLE IF NOT EXISTS tournament_groups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         stage_id INTEGER,
-        name TEXT, -- 'Group A'
+        name TEXT, 
         FOREIGN KEY(stage_id) REFERENCES tournament_stages(id)
     );
 
@@ -160,6 +176,24 @@ const schema = `
         att INTEGER, 
         def INTEGER,
         mid INTEGER
+    );
+
+    -- MANAGER & FINANZ
+    CREATE TABLE IF NOT EXISTS user_manager (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        team_id INTEGER,
+        reputation INTEGER DEFAULT 0,
+        career_start_date DATETIME,
+        FOREIGN KEY(team_id) REFERENCES teams(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS finances (
+        team_id INTEGER PRIMARY KEY,
+        balance INTEGER DEFAULT 50000000,
+        weekly_wages INTEGER DEFAULT 0,
+        transfer_budget INTEGER DEFAULT 20000000,
+        FOREIGN KEY(team_id) REFERENCES teams(id)
     );
 `;
 

@@ -52,37 +52,42 @@ export default function Home() {
                     </div>
                 </div>
 
-                {/* F1 Card */}
-                <div className="group relative p-8 rounded-3xl bg-slate-900 border border-white/5 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_40px_-10px_rgba(168,85,247,0.3)] overflow-hidden cursor-pointer">
-                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                {/* F1 Card - Coming Soon */}
+                <div className="group relative p-8 rounded-3xl bg-slate-900 border border-white/5 overflow-hidden grayscale opacity-70 cursor-not-allowed">
+                    {/* Locked Overlay */}
+                    <div className="absolute inset-0 bg-slate-900/60 z-20 flex items-center justify-center">
+                        <span className="px-4 py-2 bg-slate-800 border border-slate-600 rounded-full text-sm font-bold text-slate-400 uppercase tracking-wider">
+                            Coming Soon
+                        </span>
+                    </div>
 
                     <div className="relative z-10">
                         <div className="flex justify-between items-start mb-6">
                             <div className="p-3 bg-purple-950/50 rounded-xl border border-purple-500/20 text-purple-400">
                                 🏎️
                             </div>
-                            <span className="text-xs font-bold bg-purple-500/10 text-purple-400 px-2 py-1 rounded">PRE-SEASON</span>
+                            <span className="text-xs font-bold bg-slate-700 text-slate-400 px-2 py-1 rounded">2026</span>
                         </div>
 
-                        <h2 className="text-3xl font-bold mb-2 group-hover:text-purple-400 transition-colors">Formula 1</h2>
-                        <p className="text-slate-400 mb-6 line-clamp-2">
+                        <h2 className="text-3xl font-bold mb-2 text-slate-500">Formula 1</h2>
+                        <p className="text-slate-500 mb-6 line-clamp-2">
                             Next-gen racing simulation. Data-driven track analysis, tyre strategies, and weather dynamism.
                         </p>
 
                         <div className="space-y-2">
-                            <div className="flex justify-between text-sm text-slate-500 border-b border-white/5 pb-1">
+                            <div className="flex justify-between text-sm text-slate-600 border-b border-white/5 pb-1">
                                 <span>Constructor Standings</span>
-                                <span className="text-slate-300">Reset</span>
+                                <span className="text-slate-500">-</span>
                             </div>
-                            <div className="flex justify-between text-sm text-slate-500 border-b border-white/5 pb-1">
+                            <div className="flex justify-between text-sm text-slate-600 border-b border-white/5 pb-1">
                                 <span>Next Race</span>
-                                <span className="text-slate-300">Bahrain GP</span>
+                                <span className="text-slate-500">TBD</span>
                             </div>
                         </div>
 
-                        <a href="/f1" className="block text-center mt-8 w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-purple-900/20">
-                            Enter Simulation
-                        </a>
+                        <div className="block text-center mt-8 w-full py-3 bg-slate-700 text-slate-500 font-semibold rounded-xl">
+                            Coming Soon
+                        </div>
                     </div>
                 </div>
 

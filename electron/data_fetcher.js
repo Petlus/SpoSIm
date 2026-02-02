@@ -170,8 +170,9 @@ async function updateAllData() {
     // Prepare Statements
     const insertLeague = db.prepare('INSERT OR REPLACE INTO leagues (id, name, type, current_season, sport) VALUES (?, ?, ?, ?, ?)');
 
-    // Team Info only
+    // Team Info - only update if team doesn't exist OR if this is NOT the CL
     const insertTeam = db.prepare('INSERT OR REPLACE INTO teams (id, name, league_id, att, def, mid, prestige, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const checkTeamExists = db.prepare('SELECT id, league_id FROM teams WHERE id = ?');
 
     // Standings (Season Data)
     const insertStanding = db.prepare('INSERT OR REPLACE INTO standings (league_id, team_id, season, group_name, played, wins, draws, losses, gf, ga, points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
@@ -180,34 +181,39 @@ async function updateAllData() {
     const insertPlayer = db.prepare('INSERT INTO players (team_id, name, position, age, skill, fitness, is_injured) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const countPlayers = db.prepare('SELECT count(*) as c FROM players WHERE team_id = ?');
 
-    const insertF1Team = db.prepare('INSERT OR REPLACE INTO f1_teams (id, name, perf, reliability) VALUES (?, ?, ?, ?)');
+    const insertF1Team = db.prepare('INSERT OR REPLACE INTO f1_teams (id, name, perf, reliability) VALUES (?, ?, ?, ?)')
     const insertDriver = db.prepare('INSERT OR REPLACE INTO f1_drivers (id, name, team_id, skill, points) VALUES (?, ?, ?, ?, ?)');
 
+    // Separate domestic leagues from CL
+    const CL_ID = 2001;
+    const domesticLeagues = footballData.filter(l => l.id !== CL_ID);
+    const championsLeague = footballData.find(l => l.id === CL_ID);
+
     const updateTx = db.transaction(() => {
-        // Football
-        for (const league of footballData) {
-            console.log(`Saving League: ${league.name}`);
+        // 1. Process DOMESTIC LEAGUES FIRST
+        for (const league of domesticLeagues) {
+            console.log(`Saving Domestic League: ${league.name}`);
             insertLeague.run(league.id, league.name, 'league', '2024/2025', 'football');
 
             for (const team of league.teams) {
-                // Upsert Team Info
+                // Insert/Update Team with domestic league_id
                 insertTeam.run(
                     team.id,
                     team.name,
-                    league.id,
+                    league.id, // Domestic league ID
                     team.att,
                     team.def,
                     team.mid,
-                    team.mid, // Prestige proxied by rating
+                    team.mid,
                     team.logo
                 );
 
-                // Upsert Standings (Season 2024/2025)
+                // Standings for domestic league
                 insertStanding.run(
                     league.id,
                     team.id,
                     '2024/2025',
-                    team.group, // Group Name (e.g. 'GROUP A')
+                    team.group,
                     team.stats.played || 0,
                     team.stats.wins || 0,
                     team.stats.draws || 0,
@@ -221,13 +227,65 @@ async function updateAllData() {
                 const pCount = countPlayers.get(team.id).c;
                 if (pCount < 11) {
                     const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
-                    for (let i = 0; i < 25; i++) { // Generate 25 players
+                    for (let i = 0; i < 25; i++) {
                         const pos = positions[i % positions.length];
                         const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
-                        const name = `${pos} Player ${i + 1}`; // Simple mock name
+                        const name = `${pos} Player ${i + 1}`;
                         insertPlayer.run(team.id, name, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
                     }
                 }
+            }
+        }
+
+        // 2. Process CHAMPIONS LEAGUE - STANDINGS ONLY (don't change team's league_id)
+        if (championsLeague) {
+            console.log(`Saving Champions League Standings (${championsLeague.teams.length} teams)...`);
+            insertLeague.run(CL_ID, 'Champions League', 'tournament', '2024/2025', 'football');
+
+            for (const team of championsLeague.teams) {
+                // Check if team already exists from domestic league
+                const existingTeam = checkTeamExists.get(team.id);
+
+                if (!existingTeam) {
+                    // Team not in any domestic league we track (e.g., other countries)
+                    // Insert with CL as their "home" league
+                    insertTeam.run(
+                        team.id,
+                        team.name,
+                        CL_ID, // Only for teams we don't have domestic data for
+                        team.att,
+                        team.def,
+                        team.mid,
+                        team.mid,
+                        team.logo
+                    );
+
+                    // Generate players for these teams too
+                    const pCount = countPlayers.get(team.id).c;
+                    if (pCount < 11) {
+                        const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
+                        for (let i = 0; i < 25; i++) {
+                            const pos = positions[i % positions.length];
+                            const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
+                            insertPlayer.run(team.id, `${pos} Player ${i + 1}`, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
+                        }
+                    }
+                }
+
+                // Always insert CL standings (separate from domestic)
+                insertStanding.run(
+                    CL_ID, // CL league ID for standings
+                    team.id,
+                    '2024/2025',
+                    team.group, // GROUP A, GROUP B, etc.
+                    team.stats.played || 0,
+                    team.stats.wins || 0,
+                    team.stats.draws || 0,
+                    team.stats.losses || 0,
+                    team.stats.gf || 0,
+                    team.stats.ga || 0,
+                    team.points || 0
+                );
             }
         }
 

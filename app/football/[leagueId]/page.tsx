@@ -1,167 +1,332 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy } from 'lucide-react';
+
+// Form Dot Component
+const FormDot = ({ result }: { result: string }) => {
+    const colors: Record<string, string> = {
+        W: 'bg-emerald-500',
+        D: 'bg-slate-500',
+        L: 'bg-rose-500'
+    };
+    return <div className={`w-2 h-2 rounded-full ${colors[result] || 'bg-slate-700'}`} title={result} />;
+};
+
+// Power Rating calculation
+const calcPowerRating = (team: any) => {
+    if (!team.stats || team.stats.played === 0) return 50;
+    const gpg = team.stats.gf / team.stats.played;
+    const gapg = team.stats.ga / team.stats.played;
+    const ppg = team.points / team.stats.played;
+    return Math.round((ppg * 20) + (gpg * 10) - (gapg * 5) + 30);
+};
 
 export default function LeaguePage() {
     const { leagueId } = useParams();
-    const router = useRouter();
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('Standings'); // 'Standings', 'Knockout'
+    const [simulating, setSimulating] = useState(false);
+    const [activeTab, setActiveTab] = useState<'standings' | 'fixtures'>('standings');
     const [activeGroup, setActiveGroup] = useState<string | null>(null);
+    const [fixtures, setFixtures] = useState<any[]>([]);
+    const [loadingOdds, setLoadingOdds] = useState(false);
+
+    // Insights Panel State
+    const [insightsOpen, setInsightsOpen] = useState(false);
+    const [insightsData, setInsightsData] = useState<any>(null);
+    const [loadingInsights, setLoadingInsights] = useState(false);
 
     useEffect(() => {
-        if (leagueId) {
-            // @ts-ignore
-            if (window.electron) {
-                // @ts-ignore
-                window.electron.getData('football').then((res: any) => {
-                    const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
-                    if (league) {
-                        // Determine initial group if any
-                        const firstGroup = league.teams.length > 0 ? (league.teams[0].group || 'League') : 'League';
-                        setActiveGroup(firstGroup);
-                        // Sort teams by points
-                        league.teams.sort((a: any, b: any) => b.points - a.points);
-                        setData(league);
-                    }
-                    setLoading(false);
-                });
-            }
-        }
+        if (leagueId) loadData();
     }, [leagueId]);
 
-    const simulateMatchday = async () => {
+    const loadData = async () => {
         // @ts-ignore
-        await window.electron.simulateMatchday(leagueId);
-        // refresh
-        // @ts-ignore
-        const res = await window.electron.getData('football');
-        const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
-        if (league) {
-            league.teams.sort((a: any, b: any) => b.points - a.points);
-            setData(league);
+        if (window.electron) {
+            // @ts-ignore
+            const res = await window.electron.getData('football');
+            const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
+            if (league) {
+                const firstGroup = league.teams.length > 0 ? (league.teams[0].group || 'League') : 'League';
+                if (!activeGroup) setActiveGroup(firstGroup);
+                league.teams.sort((a: any, b: any) => b.points - a.points);
+                setData(league);
+                generateFixtures(league.teams);
+            }
+            setLoading(false);
         }
+    }
+
+    const generateFixtures = async (teams: any[]) => {
+        if (teams.length < 2) return;
+        setLoadingOdds(true);
+        const shuffled = [...teams].sort(() => Math.random() - 0.5);
+        const pairs = [];
+        for (let i = 0; i < shuffled.length - 1; i += 2) {
+            pairs.push({ home: shuffled[i], away: shuffled[i + 1], odds: null });
+        }
+        setFixtures(pairs);
+
+        // @ts-ignore
+        if (window.electron) {
+            for (let i = 0; i < pairs.length; i++) {
+                // @ts-ignore
+                const odds = await window.electron.getMatchOdds(pairs[i].home.id, pairs[i].away.id);
+                pairs[i].odds = odds;
+                setFixtures([...pairs]);
+            }
+        }
+        setLoadingOdds(false);
     };
 
-    if (loading) return <div className="p-8 text-white">Loading League Data...</div>;
-    if (!data) return <div className="p-8 text-white">League not found</div>;
+    const openInsights = async (home: any, away: any) => {
+        setInsightsOpen(true);
+        setLoadingInsights(true);
+        // @ts-ignore
+        if (window.electron) {
+            // @ts-ignore
+            const data = await window.electron.getAdvancedAnalysis(home.id, away.id);
+            setInsightsData(data);
+        }
+        setLoadingInsights(false);
+    };
 
-    // Group teams logic
+    const simulateMatchday = async () => {
+        setSimulating(true);
+        // @ts-ignore
+        await window.electron.simulateMatchday(leagueId);
+        setTimeout(() => { loadData(); setSimulating(false); }, 800);
+    };
+
+    if (loading) return <div className="p-10 text-slate-400 flex items-center gap-3"><RefreshCw className="animate-spin" size={18} /> Loading...</div>;
+    if (!data) return <div className="p-10 text-slate-400">League not found</div>;
+
     const uniqueGroups = Array.from(new Set(data.teams.map((t: any) => t.group || 'League')));
-    const isTournament = uniqueGroups.length > 1;
-
     const filteredTeams = data.teams.filter((t: any) => (t.group || 'League') === activeGroup);
 
     return (
-        <div className="min-h-screen bg-slate-900 text-white p-8">
-            <div className="max-w-6xl mx-auto">
-                <div className="flex justify-between items-center mb-6">
-                    <Link href="/football" className="text-cyan-400 hover:underline">← Back to Leagues</Link>
-                    <div className="space-x-4 flex items-center">
-                        {/* Phase Switcher for Tournaments */}
-                        {isTournament && (
-                            <div className="inline-flex bg-slate-800 rounded-lg p-1 mr-4">
-                                <button
-                                    onClick={() => setActiveTab('Standings')}
-                                    className={`px-4 py-1 rounded-md text-sm transition-colors ${activeTab === 'Standings' ? 'bg-cyan-600' : 'hover:bg-slate-700'}`}
-                                >
-                                    Groups
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('Knockout')}
-                                    className={`px-4 py-1 rounded-md text-sm transition-colors ${activeTab === 'Knockout' ? 'bg-cyan-600' : 'hover:bg-slate-700'}`}
-                                >
-                                    Knockout
-                                </button>
-                            </div>
-                        )}
-                        <button
-                            onClick={simulateMatchday}
-                            className="bg-green-600 hover:bg-green-500 px-6 py-2 rounded-lg font-bold shadow-lg transition-all"
-                        >
-                            Simulate Matchday
-                        </button>
-                    </div>
+        <div className="p-6 md:p-8 max-w-7xl mx-auto min-h-screen relative">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <div>
+                    <Link href="/football" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-1 transition-colors text-sm">
+                        <ArrowLeft size={14} /> Back
+                    </Link>
+                    <h1 className="text-3xl font-bold text-white">{data.name}</h1>
                 </div>
-
-                <div className="flex items-center gap-4 mb-8">
-                    <h1 className="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">
-                        {data.name}
-                    </h1>
-                    <span className="bg-slate-700 px-3 py-1 rounded text-sm text-cyan-200">{data.teams.length} Teams</span>
-                </div>
-
-                {activeTab === 'Standings' && (
-                    <>
-                        {/* Group Tabs */}
-                        {uniqueGroups.length > 1 && (
-                            <div className="flex gap-2 overflow-x-auto pb-4 mb-2 scrollbar-hide">
-                                {uniqueGroups.map((g: any) => (
-                                    <button
-                                        key={g}
-                                        onClick={() => setActiveGroup(g)}
-                                        className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeGroup === g
-                                                ? 'bg-cyan-600 text-white'
-                                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                            }`}
-                                    >
-                                        {g}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-
-                        <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-xl overflow-hidden">
-                            <table className="w-full text-left">
-                                <thead>
-                                    <tr className="border-b border-white/10 text-slate-400 text-sm uppercase tracking-wider">
-                                        <th className="p-4">#</th>
-                                        <th className="p-4">Team</th>
-                                        <th className="p-4 text-center">P</th>
-                                        <th className="p-4 text-center">W</th>
-                                        <th className="p-4 text-center">D</th>
-                                        <th className="p-4 text-center">L</th>
-                                        <th className="p-4 text-center">GF</th>
-                                        <th className="p-4 text-center">GA</th>
-                                        <th className="p-4 text-center font-bold text-white">Pts</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/5">
-                                    {filteredTeams.map((team: any, index: number) => (
-                                        <tr key={team.id} className="hover:bg-white/5 transition-colors group">
-                                            <td className="p-4 text-slate-500">{index + 1}</td>
-                                            <td className="p-4 font-bold flex items-center gap-3">
-                                                {team.logo && <img src={team.logo} className="w-8 h-8 object-contain" />}
-                                                {team.name}
-                                            </td>
-                                            <td className="p-4 text-center text-slate-400">{team.stats.played}</td>
-                                            <td className="p-4 text-center text-green-400">{team.stats.wins}</td>
-                                            <td className="p-4 text-center text-yellow-400">{team.stats.draws}</td>
-                                            <td className="p-4 text-center text-red-400">{team.stats.losses}</td>
-                                            <td className="p-4 text-center text-slate-300">{team.stats.gf}</td>
-                                            <td className="p-4 text-center text-slate-300">{team.stats.ga}</td>
-                                            <td className="p-4 text-center font-black text-xl text-white">{team.points}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </>
-                )}
-
-                {activeTab === 'Knockout' && (
-                    <div className="flex flex-col items-center justify-center py-20 bg-white/5 rounded-2xl border border-white/10 border-dashed">
-                        <div className="text-6xl mb-4">🏆</div>
-                        <h3 className="text-2xl font-bold text-white mb-2">Knockout Stage</h3>
-                        <p className="text-slate-400 max-w-md text-center">
-                            The tournament bracket will appear here once the Group Stage is concluded.
-                        </p>
+                <div className="flex items-center gap-3">
+                    <div className="flex bg-slate-800/50 rounded-lg p-1 text-sm border border-slate-700/50">
+                        <button onClick={() => setActiveTab('standings')} className={`px-4 py-1.5 rounded-md font-medium transition-all ${activeTab === 'standings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>Standings</button>
+                        <button onClick={() => setActiveTab('fixtures')} className={`px-4 py-1.5 rounded-md font-medium transition-all ${activeTab === 'fixtures' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>Fixtures</button>
                     </div>
-                )}
+                    <button onClick={simulateMatchday} disabled={simulating} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold text-white text-sm shadow-lg shadow-emerald-900/30 transition-all disabled:opacity-50 flex items-center gap-2">
+                        {simulating ? <RefreshCw className="animate-spin" size={16} /> : <Play size={16} fill="currentColor" />}
+                        {simulating ? 'Simulating...' : 'Simulate'}
+                    </button>
+                </div>
             </div>
+
+            {/* Group Tabs */}
+            {uniqueGroups.length > 1 && activeTab === 'standings' && (
+                <div className="flex gap-2 overflow-x-auto pb-3 mb-4">
+                    {uniqueGroups.map((g: any) => (
+                        <button key={g} onClick={() => setActiveGroup(g)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeGroup === g ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>
+                            {g}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* Standings Table */}
+            {activeTab === 'standings' && (
+                <div className="glass-card overflow-hidden">
+                    <table className="data-table">
+                        <thead>
+                            <tr>
+                                <th className="w-10">#</th>
+                                <th>Team</th>
+                                <th className="text-center w-24">Form</th>
+                                <th className="text-center">MP</th>
+                                <th className="text-center">W</th>
+                                <th className="text-center">D</th>
+                                <th className="text-center">L</th>
+                                <th className="text-center">GD</th>
+                                <th className="text-center">Pts</th>
+                                <th className="text-center">PWR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredTeams.map((team: any, index: number) => {
+                                const pwr = calcPowerRating(team);
+                                const gd = (team.stats?.gf || 0) - (team.stats?.ga || 0);
+                                return (
+                                    <tr key={team.id}>
+                                        <td className="text-slate-500 font-mono">{index + 1}</td>
+                                        <td className="font-semibold flex items-center gap-3">
+                                            <div className="w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                {team.logo ? <img src={team.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                            </div>
+                                            <span className="text-slate-100 truncate">{team.name}</span>
+                                        </td>
+                                        <td className="text-center">
+                                            <div className="flex items-center justify-center gap-1">
+                                                {(team.form || []).slice(0, 5).map((r: string, i: number) => <FormDot key={i} result={r} />)}
+                                                {(!team.form || team.form.length === 0) && <span className="text-slate-600 text-xs">-</span>}
+                                            </div>
+                                        </td>
+                                        <td className="text-center text-slate-400 font-mono">{team.stats?.played || 0}</td>
+                                        <td className="text-center text-slate-400 font-mono">{team.stats?.wins || 0}</td>
+                                        <td className="text-center text-slate-400 font-mono">{team.stats?.draws || 0}</td>
+                                        <td className="text-center text-slate-400 font-mono">{team.stats?.losses || 0}</td>
+                                        <td className={`text-center font-mono font-medium ${gd > 0 ? 'text-emerald-400' : gd < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                                            {gd > 0 ? `+${gd}` : gd}
+                                        </td>
+                                        <td className="text-center font-bold text-white font-mono">{team.points}</td>
+                                        <td className="text-center">
+                                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold font-mono ${pwr >= 70 ? 'bg-emerald-500/20 text-emerald-400' : pwr >= 50 ? 'bg-sky-500/20 text-sky-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                                                {pwr}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Fixtures Tab */}
+            {activeTab === 'fixtures' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between text-sm text-slate-400 mb-2">
+                        <span>Next Matchday - Monte-Carlo Odds (1000 Runs)</span>
+                        {loadingOdds && <span className="flex items-center gap-2"><RefreshCw className="animate-spin" size={14} /> Calculating...</span>}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {fixtures.map((f, i) => (
+                            <div key={i} className="glass-card p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                            {f.home.logo ? <img src={f.home.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                        </div>
+                                        <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
+                                    </div>
+                                    <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
+                                    <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+                                        <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
+                                        <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                            {f.away.logo ? <img src={f.away.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Probability Bar */}
+                                {f.odds ? (
+                                    <div>
+                                        <div className="flex justify-between text-xs mb-1.5 font-mono">
+                                            <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {f.odds.homeWinProb}%</span>
+                                            <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {f.odds.drawProb}%</span>
+                                            <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {f.odds.awayWinProb}%</span>
+                                        </div>
+                                        <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                            <div className="bg-emerald-500" style={{ width: `${f.odds.homeWinProb}%` }}></div>
+                                            <div className="bg-slate-500" style={{ width: `${f.odds.drawProb}%` }}></div>
+                                            <div className="bg-rose-500" style={{ width: `${f.odds.awayWinProb}%` }}></div>
+                                        </div>
+                                        <button onClick={() => openInsights(f.home, f.away)} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                            <BarChart3 size={12} /> View Insights
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="h-6 bg-slate-700 rounded animate-pulse"></div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Insights Side Panel */}
+            {insightsOpen && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end" onClick={() => setInsightsOpen(false)}>
+                    <div className="w-full max-w-md bg-slate-900 border-l border-slate-700 h-full overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-bold text-white">Match Insights</h2>
+                            <button onClick={() => setInsightsOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+                        </div>
+
+                        {loadingInsights ? (
+                            <div className="flex items-center justify-center py-20 text-slate-400"><RefreshCw className="animate-spin" size={24} /></div>
+                        ) : insightsData ? (
+                            <div className="space-y-6">
+                                {/* Teams Header */}
+                                <div className="flex items-center justify-between text-center">
+                                    <div className="flex-1"><p className="font-bold text-white">{insightsData.home.name}</p><p className="text-xs text-slate-500">Form: {(insightsData.home.formFactor * 100 - 100).toFixed(0)}%</p></div>
+                                    <span className="text-slate-600 px-4">vs</span>
+                                    <div className="flex-1"><p className="font-bold text-white">{insightsData.away.name}</p><p className="text-xs text-slate-500">Form: {(insightsData.away.formFactor * 100 - 100).toFixed(0)}%</p></div>
+                                </div>
+
+                                {/* Monte-Carlo Odds */}
+                                <div className="glass-panel p-4">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Activity size={14} /> Monte-Carlo Simulation</h3>
+                                    <div className="grid grid-cols-3 gap-4 text-center">
+                                        <div><p className="text-2xl font-bold text-emerald-400 font-mono">{insightsData.odds.homeWinProb}%</p><p className="text-xs text-slate-500">Home Win</p></div>
+                                        <div><p className="text-2xl font-bold text-slate-400 font-mono">{insightsData.odds.drawProb}%</p><p className="text-xs text-slate-500">Draw</p></div>
+                                        <div><p className="text-2xl font-bold text-rose-400 font-mono">{insightsData.odds.awayWinProb}%</p><p className="text-xs text-slate-500">Away Win</p></div>
+                                    </div>
+                                </div>
+
+                                {/* Form */}
+                                <div className="glass-panel p-4">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Recent Form (Last 5)</h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="flex gap-1.5">{insightsData.home.form.map((r: string, i: number) => <FormDot key={i} result={r} />)}</div>
+                                        <div className="flex gap-1.5 justify-end">{insightsData.away.form.map((r: string, i: number) => <FormDot key={i} result={r} />)}</div>
+                                    </div>
+                                </div>
+
+                                {/* Top Scorers */}
+                                <div className="glass-panel p-4">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Trophy size={14} /> Top Scorers</h3>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>{insightsData.home.scorers.length > 0 ? insightsData.home.scorers.map((s: any) => <p key={s.name} className="text-slate-300">{s.name} <span className="text-emerald-400 font-mono">({s.goals})</span></p>) : <p className="text-slate-600">No data</p>}</div>
+                                        <div className="text-right">{insightsData.away.scorers.length > 0 ? insightsData.away.scorers.map((s: any) => <p key={s.name} className="text-slate-300"><span className="text-emerald-400 font-mono">({s.goals})</span> {s.name}</p>) : <p className="text-slate-600">No data</p>}</div>
+                                    </div>
+                                </div>
+
+                                {/* Injuries */}
+                                <div className="glass-panel p-4">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><AlertTriangle size={14} className="text-rose-400" /> Injuries</h3>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>{insightsData.home.injuries.length > 0 ? insightsData.home.injuries.map((p: any) => <p key={p.name} className="text-rose-400">{p.name} <span className="text-slate-500">({p.position})</span></p>) : <p className="text-slate-600">None</p>}</div>
+                                        <div className="text-right">{insightsData.away.injuries.length > 0 ? insightsData.away.injuries.map((p: any) => <p key={p.name} className="text-rose-400"><span className="text-slate-500">({p.position})</span> {p.name}</p>) : <p className="text-slate-600">None</p>}</div>
+                                    </div>
+                                </div>
+
+                                {/* H2H */}
+                                <div className="glass-panel p-4">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Head-to-Head</h3>
+                                    {insightsData.h2h.length > 0 ? (
+                                        <div className="space-y-2 text-sm">
+                                            {insightsData.h2h.map((m: any, i: number) => (
+                                                <div key={i} className="flex justify-between text-slate-300">
+                                                    <span>{m.home_team_id === insightsData.home.id ? insightsData.home.name : insightsData.away.name}</span>
+                                                    <span className="font-mono font-bold">{m.home_score} - {m.away_score}</span>
+                                                    <span>{m.away_team_id === insightsData.away.id ? insightsData.away.name : insightsData.home.name}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : <p className="text-slate-600">No previous meetings</p>}
+                                </div>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
