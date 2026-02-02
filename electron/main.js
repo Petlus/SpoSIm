@@ -32,6 +32,20 @@ function createWindow() {
 app.whenReady().then(() => {
     createWindow();
 
+    // Check if Data exists, if not, fetch it
+    try {
+        const leagueCount = db.prepare('SELECT count(*) as c FROM leagues').get().c;
+        if (leagueCount === 0) {
+            console.log("Database empty. Starting initial data fetch...");
+            dataFetcher.updateAllData().then(() => {
+                console.log("Initial fetch complete. Reloading window...");
+                if (mainWindow) mainWindow.reload();
+            }).catch(err => console.error("Initial fetch failed:", err));
+        }
+    } catch (e) {
+        console.error("DB Check Failed:", e);
+    }
+
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             createWindow();
@@ -61,17 +75,18 @@ ipcMain.handle('get-data', (event, category) => {
         for (const l of leagues) {
             // Join teams with their current season standings
             const teams = db.prepare(`
-                SELECT t.*, s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points 
+                SELECT t.*, s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
                 FROM teams t
                 LEFT JOIN standings s ON t.id = s.team_id AND s.season = '2024/2025'
                 WHERE t.league_id = ?
-                ORDER BY s.points DESC
+                ORDER BY s.group_name ASC, s.points DESC
             `).all(l.id);
 
             // Map to frontend structure
             const mappedTeams = teams.map(t => ({
                 ...t,
                 logo: t.logo,
+                group: t.group_name || 'League', // Default to 'League' if null
                 points: t.points || 0, // ensure not null
                 stats: {
                     played: t.played || 0,

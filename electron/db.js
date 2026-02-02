@@ -77,7 +77,7 @@ const schema = `
         league_id INTEGER,
         team_id INTEGER,
         season TEXT,
-        group_id INTEGER, -- Link to tournament_groups (optional)
+        group_name TEXT, -- 'Group A', 'Group B' etc.
         played INTEGER DEFAULT 0,
         wins INTEGER DEFAULT 0,
         draws INTEGER DEFAULT 0,
@@ -85,7 +85,7 @@ const schema = `
         gf INTEGER DEFAULT 0,
         ga INTEGER DEFAULT 0,
         points INTEGER DEFAULT 0,
-        PRIMARY KEY (league_id, team_id, season, group_id),
+        PRIMARY KEY (league_id, team_id, season, group_name),
         FOREIGN KEY(team_id) REFERENCES teams(id)
     );
 
@@ -142,6 +142,7 @@ const schema = `
         name TEXT, -- 'Group Stage', 'Round of 16'
         type TEXT, -- 'group', 'knockout'
         is_two_legged BOOLEAN DEFAULT 0,
+        has_away_goals_rule BOOLEAN DEFAULT 0,
         FOREIGN KEY(tournament_id) REFERENCES leagues(id)
     );
 

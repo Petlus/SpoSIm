@@ -25,6 +25,9 @@ async function fetchFootballData() {
 
         for (const l of leaguesToCheck) {
             console.log(`Getting ${l.name} (${l.code})...`);
+            // Rate Limit Delay
+            await new Promise(r => setTimeout(r, 1500));
+
             try {
                 const res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${l.code}/standings`, { headers });
 
@@ -35,6 +38,8 @@ async function fetchFootballData() {
 
                 for (const tableObj of tables) {
                     if (tableObj.table) {
+                        const groupName = tableObj.group ? tableObj.group.replace('_', ' ') : null; // "GROUP_A" -> "GROUP A"
+
                         const groupTeams = tableObj.table.map(row => {
                             // simplistic ratings
                             const gd = row.goalDifference || (row.goalsFor - row.goalsAgainst);
@@ -58,6 +63,7 @@ async function fetchFootballData() {
                                 form: parseFloat(formVal.toFixed(2)),
                                 points: row.points,
                                 logo: row.team.crest,
+                                group: groupName,
                                 stats: {
                                     played: row.playedGames,
                                     wins: row.won,
@@ -168,7 +174,11 @@ async function updateAllData() {
     const insertTeam = db.prepare('INSERT OR REPLACE INTO teams (id, name, league_id, att, def, mid, prestige, logo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     // Standings (Season Data)
-    const insertStanding = db.prepare('INSERT OR REPLACE INTO standings (league_id, team_id, season, played, wins, draws, losses, gf, ga, points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertStanding = db.prepare('INSERT OR REPLACE INTO standings (league_id, team_id, season, group_name, played, wins, draws, losses, gf, ga, points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+    // Players
+    const insertPlayer = db.prepare('INSERT INTO players (team_id, name, position, age, skill, fitness, is_injured) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const countPlayers = db.prepare('SELECT count(*) as c FROM players WHERE team_id = ?');
 
     const insertF1Team = db.prepare('INSERT OR REPLACE INTO f1_teams (id, name, perf, reliability) VALUES (?, ?, ?, ?)');
     const insertDriver = db.prepare('INSERT OR REPLACE INTO f1_drivers (id, name, team_id, skill, points) VALUES (?, ?, ?, ?, ?)');
@@ -197,6 +207,7 @@ async function updateAllData() {
                     league.id,
                     team.id,
                     '2024/2025',
+                    team.group, // Group Name (e.g. 'GROUP A')
                     team.stats.played || 0,
                     team.stats.wins || 0,
                     team.stats.draws || 0,
@@ -205,6 +216,18 @@ async function updateAllData() {
                     team.stats.ga || 0,
                     team.points || 0
                 );
+
+                // Generate Mock Players if None Exist
+                const pCount = countPlayers.get(team.id).c;
+                if (pCount < 11) {
+                    const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
+                    for (let i = 0; i < 25; i++) { // Generate 25 players
+                        const pos = positions[i % positions.length];
+                        const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
+                        const name = `${pos} Player ${i + 1}`; // Simple mock name
+                        insertPlayer.run(team.id, name, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
+                    }
+                }
             }
         }
 

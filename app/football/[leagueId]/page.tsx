@@ -1,132 +1,167 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 
-export default function LeagueDashboard() {
-    const params = useParams(); // Use useParams hook
-    const [league, setLeague] = useState<any>(null);
-    const [simulating, setSimulating] = useState(false);
-
-    // We need to resolve params.leagueId which might be a promise or string depending on Next.js version
-    // but useParams() returns an object.
-    const leagueId = params?.leagueId;
-
-    const loadLeague = async () => {
-        if (!leagueId) return;
-        const data = await (window as any).electron.getData('football');
-        const l = data.leagues.find((x: any) => x.id.toString() === leagueId.toString());
-        if (l) {
-            // Sort tables
-            l.teams.sort((a: any, b: any) => b.points - a.points);
-            setLeague(l);
-        }
-    };
+export default function LeaguePage() {
+    const { leagueId } = useParams();
+    const router = useRouter();
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('Standings'); // 'Standings', 'Knockout'
+    const [activeGroup, setActiveGroup] = useState<string | null>(null);
 
     useEffect(() => {
-        loadLeague();
+        if (leagueId) {
+            // @ts-ignore
+            if (window.electron) {
+                // @ts-ignore
+                window.electron.getData('football').then((res: any) => {
+                    const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
+                    if (league) {
+                        // Determine initial group if any
+                        const firstGroup = league.teams.length > 0 ? (league.teams[0].group || 'League') : 'League';
+                        setActiveGroup(firstGroup);
+                        // Sort teams by points
+                        league.teams.sort((a: any, b: any) => b.points - a.points);
+                        setData(league);
+                    }
+                    setLoading(false);
+                });
+            }
+        }
     }, [leagueId]);
 
     const simulateMatchday = async () => {
-        setSimulating(true);
-        await (window as any).electron.simulateMatchday(leagueId);
-        await loadLeague(); // Reload data
-        setSimulating(false);
+        // @ts-ignore
+        await window.electron.simulateMatchday(leagueId);
+        // refresh
+        // @ts-ignore
+        const res = await window.electron.getData('football');
+        const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
+        if (league) {
+            league.teams.sort((a: any, b: any) => b.points - a.points);
+            setData(league);
+        }
     };
 
-    if (!league) return <div className="p-10 text-slate-400">Loading League Data...</div>;
+    if (loading) return <div className="p-8 text-white">Loading League Data...</div>;
+    if (!data) return <div className="p-8 text-white">League not found</div>;
+
+    // Group teams logic
+    const uniqueGroups = Array.from(new Set(data.teams.map((t: any) => t.group || 'League')));
+    const isTournament = uniqueGroups.length > 1;
+
+    const filteredTeams = data.teams.filter((t: any) => (t.group || 'League') === activeGroup);
 
     return (
-        <div className="min-h-screen p-8 bg-slate-950 text-white flex flex-col">
-            <header className="mb-8 flex justify-between items-end">
-                <div>
-                    <a href="/football" className="text-slate-500 hover:text-cyan-400 mb-2 inline-block">← Change League</a>
-                    <h1 className="text-4xl font-extrabold text-white">{league.name}</h1>
-                    <p className="text-slate-400">Season 2025/2026</p>
-                </div>
-                <div className="flex gap-3">
-                    <button
-                        disabled={simulating}
-                        onClick={simulateMatchday}
-                        className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-cyan-900/20 transition-all">
-                        {simulating ? 'Simulating...' : 'Play Next Matchday'}
-                    </button>
-                    <button
-                        disabled={simulating}
-                        className="px-6 py-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-semibold rounded-xl border border-white/10 transition-all">
-                        Simulate Season
-                    </button>
-                </div>
-            </header>
-
-            <main className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-                {/* Table / Standings */}
-                <div className="lg:col-span-2 bg-slate-900 rounded-3xl border border-white/5 p-6 overflow-hidden">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                        <span className="text-cyan-400">📊</span> Live Table
-                    </h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-slate-950/50">
-                                <tr>
-                                    <th className="px-4 py-3 rounded-l-lg">Pos</th>
-                                    <th className="px-4 py-3">Team</th>
-                                    <th className="px-4 py-3">P</th>
-                                    <th className="px-4 py-3">W</th>
-                                    <th className="px-4 py-3">D</th>
-                                    <th className="px-4 py-3">L</th>
-                                    <th className="px-4 py-3 font-bold text-white rounded-r-lg">Pts</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-800">
-                                {league.teams.map((team: any, index: number) => (
-                                    <tr key={team.id} className="hover:bg-slate-800/50 transition-colors">
-                                        <td className="px-4 py-3 font-mono text-slate-400">{index + 1}</td>
-                                        <td className="px-4 py-3 font-medium flex items-center gap-3">
-                                            {team.logo && <img src={team.logo} className="w-6 h-6 object-contain" />}
-                                            {team.name}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-400">{team.stats?.played || 0}</td>
-                                        <td className="px-4 py-3 text-slate-400">{team.stats?.wins || 0}</td>
-                                        <td className="px-4 py-3 text-slate-400">{team.stats?.draws || 0}</td>
-                                        <td className="px-4 py-3 text-slate-400">{team.stats?.losses || 0}</td>
-                                        <td className="px-4 py-3 font-bold text-cyan-400">{team.points}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* Side Panel: Fixtures / Info */}
-                <div className="space-y-6">
-                    {/* Next Fixtures Placeholder */}
-                    <div className="bg-slate-900 rounded-3xl border border-white/5 p-6">
-                        <h3 className="text-xl font-bold mb-4">Matchday Info</h3>
-                        <div className="p-4 bg-slate-950 rounded-xl border border-white/5 text-center text-slate-500 text-sm">
-                            No active fixtures generated.<br />Click "Play Next Matchday" to generate and simulate.
-                        </div>
-                    </div>
-
-                    {/* Top Scorer / Stats Placeholder */}
-                    <div className="bg-slate-900 rounded-3xl border border-white/5 p-6 h-fit">
-                        <h3 className="text-xl font-bold mb-4">Champion Probability</h3>
-                        {league.teams.slice(0, 3).map((t: any) => (
-                            <div key={t.id} className="mb-3">
-                                <div className="flex justify-between text-xs mb-1">
-                                    <span>{t.name}</span>
-                                    <span className="text-cyan-400 font-mono">{(t.points / (league.teams[0].points || 1) * 30).toFixed(1)}%</span>
-                                </div>
-                                <div className="h-2 bg-slate-950 rounded-full overflow-hidden">
-                                    <div className="h-full bg-cyan-600 rounded-full" style={{ width: `${(t.points / (league.teams[0].points || 1) * 30)}%` }}></div>
-                                </div>
+        <div className="min-h-screen bg-slate-900 text-white p-8">
+            <div className="max-w-6xl mx-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <Link href="/football" className="text-cyan-400 hover:underline">← Back to Leagues</Link>
+                    <div className="space-x-4 flex items-center">
+                        {/* Phase Switcher for Tournaments */}
+                        {isTournament && (
+                            <div className="inline-flex bg-slate-800 rounded-lg p-1 mr-4">
+                                <button
+                                    onClick={() => setActiveTab('Standings')}
+                                    className={`px-4 py-1 rounded-md text-sm transition-colors ${activeTab === 'Standings' ? 'bg-cyan-600' : 'hover:bg-slate-700'}`}
+                                >
+                                    Groups
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('Knockout')}
+                                    className={`px-4 py-1 rounded-md text-sm transition-colors ${activeTab === 'Knockout' ? 'bg-cyan-600' : 'hover:bg-slate-700'}`}
+                                >
+                                    Knockout
+                                </button>
                             </div>
-                        ))}
+                        )}
+                        <button
+                            onClick={simulateMatchday}
+                            className="bg-green-600 hover:bg-green-500 px-6 py-2 rounded-lg font-bold shadow-lg transition-all"
+                        >
+                            Simulate Matchday
+                        </button>
                     </div>
                 </div>
 
-            </main>
+                <div className="flex items-center gap-4 mb-8">
+                    <h1 className="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">
+                        {data.name}
+                    </h1>
+                    <span className="bg-slate-700 px-3 py-1 rounded text-sm text-cyan-200">{data.teams.length} Teams</span>
+                </div>
+
+                {activeTab === 'Standings' && (
+                    <>
+                        {/* Group Tabs */}
+                        {uniqueGroups.length > 1 && (
+                            <div className="flex gap-2 overflow-x-auto pb-4 mb-2 scrollbar-hide">
+                                {uniqueGroups.map((g: any) => (
+                                    <button
+                                        key={g}
+                                        onClick={() => setActiveGroup(g)}
+                                        className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeGroup === g
+                                                ? 'bg-cyan-600 text-white'
+                                                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            }`}
+                                    >
+                                        {g}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 shadow-xl overflow-hidden">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="border-b border-white/10 text-slate-400 text-sm uppercase tracking-wider">
+                                        <th className="p-4">#</th>
+                                        <th className="p-4">Team</th>
+                                        <th className="p-4 text-center">P</th>
+                                        <th className="p-4 text-center">W</th>
+                                        <th className="p-4 text-center">D</th>
+                                        <th className="p-4 text-center">L</th>
+                                        <th className="p-4 text-center">GF</th>
+                                        <th className="p-4 text-center">GA</th>
+                                        <th className="p-4 text-center font-bold text-white">Pts</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {filteredTeams.map((team: any, index: number) => (
+                                        <tr key={team.id} className="hover:bg-white/5 transition-colors group">
+                                            <td className="p-4 text-slate-500">{index + 1}</td>
+                                            <td className="p-4 font-bold flex items-center gap-3">
+                                                {team.logo && <img src={team.logo} className="w-8 h-8 object-contain" />}
+                                                {team.name}
+                                            </td>
+                                            <td className="p-4 text-center text-slate-400">{team.stats.played}</td>
+                                            <td className="p-4 text-center text-green-400">{team.stats.wins}</td>
+                                            <td className="p-4 text-center text-yellow-400">{team.stats.draws}</td>
+                                            <td className="p-4 text-center text-red-400">{team.stats.losses}</td>
+                                            <td className="p-4 text-center text-slate-300">{team.stats.gf}</td>
+                                            <td className="p-4 text-center text-slate-300">{team.stats.ga}</td>
+                                            <td className="p-4 text-center font-black text-xl text-white">{team.points}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
+
+                {activeTab === 'Knockout' && (
+                    <div className="flex flex-col items-center justify-center py-20 bg-white/5 rounded-2xl border border-white/10 border-dashed">
+                        <div className="text-6xl mb-4">🏆</div>
+                        <h3 className="text-2xl font-bold text-white mb-2">Knockout Stage</h3>
+                        <p className="text-slate-400 max-w-md text-center">
+                            The tournament bracket will appear here once the Group Stage is concluded.
+                        </p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
