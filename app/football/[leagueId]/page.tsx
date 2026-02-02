@@ -436,10 +436,29 @@ export default function LeaguePage() {
                                 <div className="glass-panel p-4">
                                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Activity size={14} /> Monte-Carlo Simulation</h3>
                                     <div className="grid grid-cols-3 gap-4 text-center">
-                                        <div><p className="text-2xl font-bold text-emerald-400 font-mono">{insightsData.odds.homeWinProb}%</p><p className="text-xs text-slate-500">Home Win</p></div>
+                                        <div>
+                                            <p className={`text-2xl font-bold font-mono ${insightsData.odds.homeWinProb > 60 ? 'text-emerald-400' : 'text-slate-200'}`}>{insightsData.odds.homeWinProb}%</p>
+                                            <p className="text-xs text-slate-500">Home Win</p>
+                                        </div>
                                         <div><p className="text-2xl font-bold text-slate-400 font-mono">{insightsData.odds.drawProb}%</p><p className="text-xs text-slate-500">Draw</p></div>
-                                        <div><p className="text-2xl font-bold text-rose-400 font-mono">{insightsData.odds.awayWinProb}%</p><p className="text-xs text-slate-500">Away Win</p></div>
+                                        <div>
+                                            <p className={`text-2xl font-bold font-mono ${insightsData.odds.awayWinProb > 60 ? 'text-emerald-400' : 'text-slate-200'}`}>{insightsData.odds.awayWinProb}%</p>
+                                            <p className="text-xs text-slate-500">Away Win</p>
+                                        </div>
                                     </div>
+
+                                    {/* Value-Bet Detector */}
+                                    {/* Logic: If Win Prob > 70% BUT team has fewer points/weaker strength -> Value Alert */}
+                                    {((insightsData.odds.homeWinProb > 70 && insightsData.home.formFactor < insightsData.away.formFactor) ||
+                                        (insightsData.odds.awayWinProb > 70 && insightsData.away.formFactor < insightsData.home.formFactor)) && (
+                                            <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded flex items-center gap-3">
+                                                <AlertTriangle className="text-amber-400 shrink-0 animate-pulse" size={20} />
+                                                <div>
+                                                    <p className="text-amber-400 font-bold text-sm uppercase tracking-wide">Value Alert!</p>
+                                                    <p className="text-amber-100/70 text-xs">Simulation identifies high probability for specific outcome despite table standings.</p>
+                                                </div>
+                                            </div>
+                                        )}
                                 </div>
 
                                 {/* Form */}

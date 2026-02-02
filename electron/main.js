@@ -41,6 +41,27 @@ app.whenReady().then(async () => {
 
     // Check if Data exists, if not, fetch it
     try {
+        // --- DB MIGRATION CHECK ---
+        const tableInfo = db.prepare("PRAGMA table_info(teams)").all();
+        const hasElo = tableInfo.some(c => c.name === 'elo_rating');
+        const hasMV = tableInfo.some(c => c.name === 'market_value');
+
+        if (!hasElo) {
+            console.log("Migrating DB: Adding elo_rating to teams...");
+            db.prepare("ALTER TABLE teams ADD COLUMN elo_rating INTEGER DEFAULT 1500").run();
+        }
+        if (!hasMV) {
+            console.log("Migrating DB: Adding market_value to teams...");
+            db.prepare("ALTER TABLE teams ADD COLUMN market_value REAL DEFAULT 50000000").run();
+        }
+
+        const playerTableInfo = db.prepare("PRAGMA table_info(players)").all();
+        const playerHasMV = playerTableInfo.some(c => c.name === 'market_value');
+        if (!playerHasMV) {
+            console.log("Migrating DB: Adding market_value to players...");
+            db.prepare("ALTER TABLE players ADD COLUMN market_value REAL").run();
+        }
+
         const leagueCount = db.prepare('SELECT count(*) as c FROM leagues').get()?.c || 0;
         if (leagueCount === 0) {
             console.log("Database empty. Starting initial data fetch...");
@@ -73,38 +94,62 @@ const dataFetcher = require('./data_fetcher');
 
 // --- HELPER FUNCTIONS ---
 
+// Update Elo Ratings
+function updateEloRatings(homeId, awayId, homeScore, awayScore) {
+    const K_FACTOR = 32;
+    const home = db.prepare('SELECT elo_rating FROM teams WHERE id = ?').get(homeId);
+    const away = db.prepare('SELECT elo_rating FROM teams WHERE id = ?').get(awayId);
+    if (!home || !away) return;
+
+    const R_home = home.elo_rating || 1500;
+    const R_away = away.elo_rating || 1500;
+
+    const Qa = Math.pow(10, R_home / 400);
+    const Qb = Math.pow(10, R_away / 400);
+    const Ea = Qa / (Qa + Qb);
+    const Eb = Qb / (Qa + Qb);
+
+    let Sa, Sb;
+    if (homeScore > awayScore) { Sa = 1; Sb = 0; }
+    else if (awayScore > homeScore) { Sa = 0; Sb = 1; }
+    else { Sa = 0.5; Sb = 0.5; }
+
+    const newHome = Math.round(R_home + K_FACTOR * (Sa - Ea));
+    const newAway = Math.round(R_away + K_FACTOR * (Sb - Eb));
+
+    db.prepare('UPDATE teams SET elo_rating = ? WHERE id = ?').run(newHome, homeId);
+    db.prepare('UPDATE teams SET elo_rating = ? WHERE id = ?').run(newAway, awayId);
+}
+
 function calculateTeamStrength(teamId) {
     // Get all players
     const players = db.prepare('SELECT position, rating FROM players WHERE team_id = ? ORDER BY rating DESC').all(teamId);
+    const team = db.prepare('SELECT prestige, league_id FROM teams WHERE id = ?').get(teamId);
+    const userPrestige = team ? team.prestige : 50;
 
-    // Fallback if weak data
+    // League Prestige Bonus (Top 5 Leagues)
+    let prestigeBonus = 0;
+    // Hardcoded IDs for Top 5 leagues from data_fetcher would be ideal, but using heuristic or stored league info
+    if ([2002, 2021, 2014, 2019, 2015].includes(team?.league_id)) {
+        prestigeBonus = 5;
+    }
+
     if (!players || players.length < 11) {
         const t = db.prepare('SELECT att, mid, def FROM teams WHERE id = ?').get(teamId);
         return t ? { att: t.att, mid: t.mid, def: t.def } : { att: 70, mid: 70, def: 70 };
     }
 
-    // Sort by rating to get "Best XI" candidates
-    // Simple logic: Take Top 14 players to form the strength base
-    const topPlayers = players.slice(0, 14);
+    // Dynamic Rating: Avg of best players in position
+    const forwards = players.filter(p => p.position === 'FWD').slice(0, 3);
+    const midfielders = players.filter(p => p.position === 'MID').slice(0, 4);
+    const defenders = players.filter(p => p.position === 'DEF' || p.position === 'GK').slice(0, 5); // 4 Def + 1 GK
 
-    let attSum = 0, attCount = 0;
-    let midSum = 0, midCount = 0;
-    let defSum = 0, defCount = 0;
-
-    for (const p of topPlayers) {
-        const r = p.rating || 70;
-        if (p.position === 'Attacker') { attSum += r; attCount++; }
-        else if (p.position === 'Midfielder') { midSum += r; midCount++; }
-        else { defSum += r; defCount++; } // Defenders + Goalkeepers
-    }
-
-    // Default averages if a position is missing in Top 14 (rare)
-    const overallAvg = topPlayers.reduce((acc, p) => acc + (p.rating || 70), 0) / topPlayers.length;
+    const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + (b.rating || 70), 0) / arr.length : 70;
 
     return {
-        att: attCount > 0 ? Math.round(attSum / attCount) : Math.round(overallAvg),
-        mid: midCount > 0 ? Math.round(midSum / midCount) : Math.round(overallAvg),
-        def: defCount > 0 ? Math.round(defSum / defCount) : Math.round(overallAvg)
+        att: Math.round(avg(forwards) + prestigeBonus),
+        mid: Math.round(avg(midfielders) + prestigeBonus),
+        def: Math.round(avg(defenders) + prestigeBonus)
     };
 }
 
@@ -502,6 +547,9 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0), // points
                 m.away.id                                 // team_id
             );
+
+            // Elo Update
+            updateEloRatings(m.home.id, m.away.id, res.homeGoals, res.awayGoals);
 
             results.push({ ...res, matchday: currentMatchday });
         }

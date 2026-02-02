@@ -402,17 +402,25 @@ async function updateAllData() {
             insertLeague.run(league.id, league.name, 'league', '2024/2025', 'football');
 
             for (const team of league.teams) {
-                // Insert/Update Team with domestic league_id
-                insertTeam.run(
-                    team.id,
-                    team.name,
-                    league.id, // Domestic league ID
-                    team.att,
-                    team.def,
-                    team.mid,
-                    team.mid,
-                    team.logo
-                );
+                // --- Market Value Heuristic ---
+                let baseMV = 50000000;
+                let eloStart = 1500;
+                const superClubs = ['Manchester City', 'Real Madrid', 'Bayern München', 'Paris Saint-Germain', 'Arsenal', 'Liverpool'];
+                const topClubs = ['Borussia Dortmund', 'Bayer 04 Leverkusen', 'Inter', 'Juventus', 'AC Milan', 'FC Barcelona', 'Atlético Madrid'];
+
+                if (superClubs.some(c => team.name.includes(c))) { baseMV = 900000000; eloStart = 1850; }
+                else if (topClubs.some(c => team.name.includes(c))) { baseMV = 500000000; eloStart = 1700; }
+                else if (league.name === 'Premier League') { baseMV = 200000000; eloStart = 1600; } // PL Money
+
+                // Insert/Update Team with new fields
+                // Note: We use db.prepare directly here to ensure fields are set
+                db.prepare(`
+                    INSERT INTO teams (id, name, league_id, att, def, mid, prestige, logo, market_value, elo_rating)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET 
+                        market_value = COALESCE(market_value, excluded.market_value),
+                        elo_rating = COALESCE(elo_rating, excluded.elo_rating)
+                `).run(team.id, team.name, league.id, team.att, team.def, team.mid, 70, team.logo, baseMV, eloStart);
 
                 // Standings for domestic league
                 insertStanding.run(
@@ -436,17 +444,55 @@ async function updateAllData() {
 
                 if (squad && squad.length > 0 && glCount === 0) {
                     console.log(`Saving ${squad.length} real players for ${team.name}`);
+
+                    // --- Market Value & Rating Heuristic ---
+                    let baseMV = 50000000;
+                    let eloStart = 1500;
+                    let baseRating = 72; // Default Average
+
+                    const superClubs = ['Manchester City', 'Real Madrid', 'Bayern München', 'Paris Saint-Germain', 'Arsenal', 'Liverpool'];
+                    const topClubs = ['Borussia Dortmund', 'Bayer 04 Leverkusen', 'Inter', 'Juventus', 'AC Milan', 'FC Barcelona', 'Atlético Madrid', 'Tottenham Hotspur', 'Manchester United', 'Chelsea'];
+
+                    if (superClubs.some(c => team.name.includes(c) || team.shortName === c)) {
+                        baseMV = 900000000 + Math.random() * 200000000;
+                        eloStart = 1900;
+                        baseRating = 87; // Stars
+                    } else if (topClubs.some(c => team.name.includes(c) || team.shortName === c)) {
+                        baseMV = 500000000 + Math.random() * 200000000;
+                        eloStart = 1750;
+                        baseRating = 82; // Top Class
+                    } else if (['Premier League', 'La Liga', 'Bundesliga', 'Serie A', 'Ligue 1'].includes(league.name)) {
+                        baseMV = 150000000 + Math.random() * 100000000;
+                        eloStart = 1600;
+                        baseRating = 76; // Solid Pro
+                    } else {
+                        // Lower tier / other
+                        baseRating = 69;
+                    }
+
+                    // Update Team (Added Market Value & Elo)
+                    db.prepare(`
+                        UPDATE teams SET 
+                            market_value = ?, 
+                            elo_rating = ?
+                        WHERE id = ?
+                    `).run(baseMV, eloStart, team.id);
+
                     for (const p of squad) {
+                        // Calibrate Rating: Base + Variance (-4 to +5)
+                        // Positional bias: FWDs slightly higher? No, keep simple.
+                        const calibratedRating = Math.floor(baseRating + (Math.random() * 9 - 4));
+
                         insertPlayer.run(
                             team.id,
                             p.name,
                             p.position,
-                            p.age || 25,
-                            p.rating || 70,
+                            p.age,
+                            calibratedRating, // Use new calibrated rating
                             p.number,
                             p.photo,
-                            100,
-                            0
+                            100, // fitness
+                            0    // is_injured
                         );
                     }
                 } else if (glCount < 11) {

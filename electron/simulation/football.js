@@ -6,19 +6,40 @@ const footballSim = {};
  * @param {Object} away Team object
  */
 footballSim.simulateMatch = (home, away) => {
-    // Basic Algo: Strength + Form + HomeAdvantage
-    // Home Advantage 10%
-    const homeStr = (home.att + home.mid) / 2 * home.form * 1.10;
-    const awayStr = (away.att + away.mid) / 2 * away.form;
+    // Weighted Algo: Market Value (40%) + Elo (40%) + Form (20%)
+    const getPower = (team) => {
+        // Normalize MV (log scale, cap at 1B)
+        const mvScore = Math.min(100, Math.log10(team.market_value || 50000000) * 10); // ~7.6 * 10 = 76 for 50m, 90 for 1B
+        // Normalize Elo
+        const eloScore = (team.elo_rating || 1500) / 20; // 1500 -> 75, 2000 -> 100
 
-    // Defense Factors
-    const homeDef = home.def * home.form * 1.10;
-    const awayDef = away.def * away.form;
+        return (mvScore * 0.4) + (eloScore * 0.4) + (team.form * 10 * 0.2); // Form 1.0 -> 10 * 0.2 = 2 pts
+    };
+
+    const homePower = getPower(home) * 1.10; // Home Bonus
+    const awayPower = getPower(away);
+
+    // Win Probability based on Diff
+    // Sigmoid Function: difference of 10 points -> ~70% win chance
+    // powerDiff = home - away
+    // probability = 1 / (1 + exp(-diff / scale))
+    const powerDiff = homePower - awayPower;
+    // Scale factor 10 means 10 diff = 1/(1+e^-1) = 0.73
+    const winProb = 1 / (1 + Math.exp(-powerDiff / 10));
+
+    // Determine Winner using probability
+    // We still simulate goals for realism, but bias chance creation heavily
+    const homeStr = homePower;
+    const awayStr = awayPower;
+
+    // Defense Factors (legacy mapping for simplicity in goal loop)
+    const homeDef = homePower * 0.9;
+    const awayDef = awayPower * 0.9;
 
     let homeGoals = 0;
     let awayGoals = 0;
     const events = [];
-    const EVENT_TYPES = { GOAL: 'goal', YELLOW: 'card_yellow', RED: 'card_red', INJURY: 'injury' };
+    const EVENT_TYPES = { GOAL: 'goal', YELLOW: 'card_yellow', RED: 'card_red', INJURY: 'injury', BIG_CHANCE: 'big_chance' };
 
     // Simulate 9 intervals of 10 minutes
     for (let i = 1; i <= 9; i++) {
@@ -55,14 +76,22 @@ footballSim.simulateMatch = (home, away) => {
                 // Boosted by attack quality > 80
                 const qualityBonus = Math.max(0, (home.att - 70) / 100); // e.g. 90 -> 0.2 bonus
                 const conversionRate = 0.20 + qualityBonus;
+                const roll = Math.random();
 
-                if (Math.random() < conversionRate) {
+                if (roll < conversionRate) {
                     homeGoals++;
                     events.push({
                         type: EVENT_TYPES.GOAL,
                         teamId: home.id,
                         minute: time - Math.floor(Math.random() * 9),
                         description: 'Goal'
+                    });
+                } else if (roll < conversionRate + 0.15) { // 15% chance to be a "Missed Big Chance"
+                    events.push({
+                        type: EVENT_TYPES.BIG_CHANCE,
+                        teamId: home.id,
+                        minute: time - Math.floor(Math.random() * 9),
+                        description: 'Big Chance Missed'
                     });
                 }
             }
@@ -77,14 +106,22 @@ footballSim.simulateMatch = (home, away) => {
             if (Math.random() < shotChance) {
                 const qualityBonus = Math.max(0, (away.att - 70) / 100);
                 const conversionRate = 0.20 + qualityBonus;
+                const roll = Math.random();
 
-                if (Math.random() < conversionRate) {
+                if (roll < conversionRate) {
                     awayGoals++;
                     events.push({
                         type: EVENT_TYPES.GOAL,
                         teamId: away.id,
                         minute: time - Math.floor(Math.random() * 9),
                         description: 'Goal'
+                    });
+                } else if (roll < conversionRate + 0.15) {
+                    events.push({
+                        type: EVENT_TYPES.BIG_CHANCE,
+                        teamId: away.id,
+                        minute: time - Math.floor(Math.random() * 9),
+                        description: 'Big Chance Missed'
                     });
                 }
             }

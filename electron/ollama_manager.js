@@ -89,6 +89,32 @@ class OllamaManager {
         }
     }
 
+    /**
+     * Get list of available models
+     * @returns {Promise<string[]>}
+     */
+    async getAvailableModels() {
+        return new Promise((resolve) => {
+            // Find executable logic (reused from startService if needed, but 'ollama' usually work if in PATH/shimmed)
+            // Or use the full path checking logic if needed
+            let cmd = 'ollama list';
+
+            exec(cmd, { timeout: 3000 }, (error, stdout, stderr) => {
+                if (error) {
+                    console.warn("Failed to list models:", error.message);
+                    resolve([]);
+                    return;
+                }
+                // Parse stdout: "NAME ID SIZE MODIFIED"
+                // Skip header line
+                const lines = stdout.trim().split('\n').slice(1);
+                const models = lines.map(line => line.split(/\s+/)[0]).filter(Boolean);
+                // Clean tags (e.g. 'llama3:latest' -> 'llama3') if desired, but full tag is better for pulling
+                resolve(models);
+            });
+        });
+    }
+
     getDownloadUrl() {
         return "https://ollama.com/download";
     }

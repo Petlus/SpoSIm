@@ -35,6 +35,8 @@ const schema = `
         mid INTEGER,
         prestige INTEGER DEFAULT 50,
         budget INTEGER DEFAULT 10000000,
+        market_value REAL DEFAULT 50000000, -- New: Market Value in Euros
+        elo_rating INTEGER DEFAULT 1500,    -- New: Elo Rating
         logo TEXT,
         is_user_controlled BOOLEAN DEFAULT 0,
         FOREIGN KEY(league_id) REFERENCES leagues(id)
@@ -57,6 +59,7 @@ const schema = `
         yellow_cards INTEGER DEFAULT 0,
         red_cards INTEGER DEFAULT 0,
         suspended_until INTEGER, -- Matchday ID
+        market_value REAL,       -- New: Player Market Value
         FOREIGN KEY(team_id) REFERENCES teams(id)
     );
 
