@@ -204,7 +204,9 @@ export default function LeaguePage() {
                                             <div className="w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                                 {team.logo ? <img src={team.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                             </div>
-                                            <span className="text-slate-100 truncate">{team.name}</span>
+                                            <Link href={`/football/team/${team.id}`} className="text-slate-100 truncate hover:text-emerald-400 hover:underline decoration-emerald-500/50 underline-offset-4 transition-all">
+                                                {team.name}
+                                            </Link>
                                         </td>
                                         <td className="text-center">
                                             <div className="flex items-center justify-center gap-1">
@@ -274,11 +276,15 @@ export default function LeaguePage() {
                                         <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                             {f.home.logo ? <img src={f.home.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                         </div>
-                                        <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
+                                        <Link href={`/football/team/${f.home.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
+                                            {f.home.short_name || f.home.name}
+                                        </Link>
                                     </div>
                                     <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
                                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
-                                        <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
+                                        <Link href={`/football/team/${f.away.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
+                                            {f.away.short_name || f.away.name}
+                                        </Link>
                                         <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                             {f.away.logo ? <img src={f.away.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                         </div>

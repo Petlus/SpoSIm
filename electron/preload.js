@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('electron', {
     simulateF1Race: (trackId) => ipcRenderer.invoke('simulate-f1-race', trackId),
     getMatchOdds: (homeId, awayId) => ipcRenderer.invoke('get-match-odds', { homeId, awayId }),
     getAdvancedAnalysis: (homeId, awayId) => ipcRenderer.invoke('get-advanced-analysis', { homeId, awayId }),
+    getTeamDetails: (teamId) => ipcRenderer.invoke('get-team-details', teamId),
 });

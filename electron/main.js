@@ -70,6 +70,41 @@ const dataFetcher = require('./data_fetcher');
 
 // --- HELPER FUNCTIONS ---
 
+function calculateTeamStrength(teamId) {
+    // Get all players
+    const players = db.prepare('SELECT position, rating FROM players WHERE team_id = ? ORDER BY rating DESC').all(teamId);
+
+    // Fallback if weak data
+    if (!players || players.length < 11) {
+        const t = db.prepare('SELECT att, mid, def FROM teams WHERE id = ?').get(teamId);
+        return t ? { att: t.att, mid: t.mid, def: t.def } : { att: 70, mid: 70, def: 70 };
+    }
+
+    // Sort by rating to get "Best XI" candidates
+    // Simple logic: Take Top 14 players to form the strength base
+    const topPlayers = players.slice(0, 14);
+
+    let attSum = 0, attCount = 0;
+    let midSum = 0, midCount = 0;
+    let defSum = 0, defCount = 0;
+
+    for (const p of topPlayers) {
+        const r = p.rating || 70;
+        if (p.position === 'Attacker') { attSum += r; attCount++; }
+        else if (p.position === 'Midfielder') { midSum += r; midCount++; }
+        else { defSum += r; defCount++; } // Defenders + Goalkeepers
+    }
+
+    // Default averages if a position is missing in Top 14 (rare)
+    const overallAvg = topPlayers.reduce((acc, p) => acc + (p.rating || 70), 0) / topPlayers.length;
+
+    return {
+        att: attCount > 0 ? Math.round(attSum / attCount) : Math.round(overallAvg),
+        mid: midCount > 0 ? Math.round(midSum / midCount) : Math.round(overallAvg),
+        def: defCount > 0 ? Math.round(defSum / defCount) : Math.round(overallAvg)
+    };
+}
+
 /**
  * Get the last 5 match results for a team to calculate form.
  * Returns array of 'W', 'D', 'L' (newest first).
@@ -247,13 +282,42 @@ ipcMain.handle('get-fixtures', (event, { leagueId, matchday }) => {
     };
 });
 
+ipcMain.handle('get-team-details', (event, teamId) => {
+    const team = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId);
+    if (!team) return { error: "Team not found" };
+
+    const players = db.prepare('SELECT * FROM players WHERE team_id = ? ORDER BY rating DESC').all(teamId);
+    const standings = db.prepare(`SELECT * FROM standings WHERE team_id = ? AND season = '2024/2025'`).get(teamId);
+
+    // Calculate real strength for UI consistency
+    const strength = calculateTeamStrength(teamId);
+
+    return {
+        ...team,
+        stats: standings,
+        players: players,
+        form: getTeamForm(teamId, 5),
+        strength: strength,
+        // Override DB values for display
+        att: strength.att,
+        mid: strength.mid,
+        def: strength.def
+    };
+});
+
 ipcMain.handle('get-match-odds', (event, { homeId, awayId }) => {
     const home = db.prepare('SELECT * FROM teams WHERE id = ?').get(homeId);
     const away = db.prepare('SELECT * FROM teams WHERE id = ?').get(awayId);
 
     if (!home || !away) return { error: "Teams not found" };
 
-    // Apply form factor
+    // Apply form factor AND Calculate Player-Based Strength
+    const homeStr = calculateTeamStrength(homeId);
+    const awayStr = calculateTeamStrength(awayId);
+
+    home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
+    away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
+
     home.form = calculateFormFactor(homeId);
     away.form = calculateFormFactor(awayId);
 
@@ -270,9 +334,15 @@ ipcMain.handle('get-advanced-analysis', (event, { homeId, awayId }) => {
     const homeForm = getTeamForm(homeId, 5);
     const awayForm = getTeamForm(awayId, 5);
 
-    // Form factors
+    // Form factors & Strength
     home.form = calculateFormFactor(homeId);
     away.form = calculateFormFactor(awayId);
+
+    const homeStr = calculateTeamStrength(homeId);
+    const awayStr = calculateTeamStrength(awayId);
+
+    home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
+    away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
     // Monte-Carlo Odds (1000 iterations)
     const odds = footballSim.simulateMatchOdds(home, away, 1000);
@@ -326,8 +396,15 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
 
     if (!teams || teams.length < 2) throw new Error("Not enough teams in league");
 
-    // Apply form factor to each team
-    const teamsWithForm = teams.map(t => ({ ...t, form: calculateFormFactor(t.id) }));
+    // Apply form factor and Calculate Strength for each team
+    const teamsWithForm = teams.map(t => {
+        const str = calculateTeamStrength(t.id);
+        return {
+            ...t,
+            att: str.att, mid: str.mid, def: str.def,
+            form: calculateFormFactor(t.id)
+        };
+    });
 
     // Create matchups (random pairing)
     const matchups = [];
@@ -442,6 +519,11 @@ ipcMain.handle('simulate-match', (event, { homeId, awayId }) => {
 
     home.form = calculateFormFactor(homeId);
     away.form = calculateFormFactor(awayId);
+
+    const homeStr = calculateTeamStrength(homeId);
+    const awayStr = calculateTeamStrength(awayId);
+    home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
+    away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
     return footballSim.simulateMatch(home, away);
 });
