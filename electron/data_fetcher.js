@@ -2,6 +2,9 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const { LEAGUE_PRESTIGE, LEAGUE_BASE_ELO, TOP_TEAMS_MARKET_VALUE } = require('./data_constants');
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const FOOTBALL_API_KEY = "083b1ae74d7d441d809ec0e0617efcb5";
 const FOOTBALL_BASE_URL = "https://api.football-data.org/v4";
@@ -119,98 +122,53 @@ const TEAM_ID_MAP = {
     526: 83,   // Lorient
 };
 
+const { CURRENT_SEASON, LEAGUES, TEAMS } = require('./constants');
+
 async function fetchFootballData() {
-    console.log("Fetching Football Data (football-data.org)...");
-    try {
-        const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
-        const fetchedLeagues = [];
+    console.log(`Using Hardcoded Data for Season ${CURRENT_SEASON}/2026...`);
 
-        // IDs from football-data.org
-        const leaguesToCheck = [
-            { code: 'BL1', id: 2002, name: 'Bundesliga' },
-            { code: 'PL', id: 2021, name: 'Premier League' },
-            { code: 'PD', id: 2014, name: 'La Liga' },
-            { code: 'SA', id: 2019, name: 'Serie A' },
-            { code: 'FL1', id: 2015, name: 'Ligue 1' },
-            { code: 'CL', id: 2001, name: 'Champions League' }
-        ];
+    // Group teams by league for return format compatibility
+    const leagueMap = {};
 
-        for (const l of leaguesToCheck) {
-            console.log(`Getting ${l.name} (${l.code})...`);
-            // Rate Limit Delay
-            await new Promise(r => setTimeout(r, 1500));
-
-            try {
-                const res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${l.code}/standings`, { headers });
-
-                // Get ALL 'TOTAL' tables (League has 1, Cup/CL has 8+)
-                const tables = res.data.standings.filter(s => s.type === 'TOTAL');
-
-                let allTeams = [];
-
-                for (const tableObj of tables) {
-                    if (tableObj.table) {
-                        const groupName = tableObj.group ? tableObj.group.replace('_', ' ') : null; // "GROUP_A" -> "GROUP A"
-
-                        const groupTeams = tableObj.table.map(row => {
-                            // simplistic ratings
-                            const gd = row.goalDifference || (row.goalsFor - row.goalsAgainst);
-                            const isGroup = tableObj.group !== undefined;
-                            const ratingPointsScale = isGroup ? 2.0 : 0.4;
-
-                            const perfRating = 70 + (row.points * ratingPointsScale) + (gd * 0.5);
-
-                            const formStr = row.form || "";
-                            const wins = (formStr.match(/W/g) || []).length;
-                            const draws = (formStr.match(/D/g) || []).length;
-                            const totalFormGames = formStr.replace(/,/g, '').length || 1;
-                            const formVal = totalFormGames > 0 ? (wins * 3 + draws) / totalFormGames : 0.5;
-
-                            return {
-                                id: row.team.id,
-                                name: row.team.name,
-                                att: Math.floor(Math.min(99, Math.max(60, perfRating + 5))),
-                                def: Math.floor(Math.min(99, Math.max(60, perfRating - (row.goalsAgainst / (row.playedGames || 1) * 5)))),
-                                mid: Math.floor(Math.min(99, Math.max(60, perfRating))),
-                                form: parseFloat(formVal.toFixed(2)),
-                                points: row.points,
-                                logo: row.team.crest,
-                                group: groupName,
-                                stats: {
-                                    played: row.playedGames,
-                                    wins: row.won,
-                                    draws: row.draw,
-                                    losses: row.lost,
-                                    gf: row.goalsFor,
-                                    ga: row.goalsAgainst
-                                }
-                            };
-                        });
-                        allTeams = allTeams.concat(groupTeams);
-                    }
-                }
-
-                if (allTeams.length > 0) {
-                    fetchedLeagues.push({
-                        id: l.id,
-                        name: l.name,
-                        teams: allTeams
-                    });
-                    console.log(`-> Fetched ${allTeams.length} teams for ${l.name}`);
-                }
-
-            } catch (err) {
-                console.error(`Error fetching ${l.name}: ${err.message}`);
-                if (err.response) console.error(JSON.stringify(err.response.data));
-            }
-        }
-
-        return fetchedLeagues;
-
-    } catch (error) {
-        console.error("Football Fetch Generic Error:", error.message);
-        return [];
+    // Initialize Leagues from Constants
+    for (const [code, info] of Object.entries(LEAGUES)) {
+        leagueMap[info.id] = {
+            id: info.id,
+            name: info.name,
+            code: code,
+            teams: []
+        };
     }
+
+    // Distribute Teams
+    for (const team of TEAMS) {
+        const leagueInfo = LEAGUES[team.leagueCode];
+        if (leagueInfo && leagueMap[leagueInfo.id]) {
+            // Apply initial stats if not present (will be 0 for fresh season)
+            const teamData = {
+                id: team.id,
+                name: team.name,
+                logo: team.logo,
+                att: Math.floor(team.elo / 20) - 10, // Rough conversion
+                def: Math.floor(team.elo / 20) - 15,
+                mid: Math.floor(team.elo / 20) - 12,
+                prestige: leagueInfo.prestige,
+                marketValue: team.marketValue,
+                elo: team.elo,
+                stats: { played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0 },
+                points: 0
+            };
+            leagueMap[leagueInfo.id].teams.push(teamData);
+        }
+    }
+
+    // Add Champions League Teams (some might overlap with domestic)
+    // For simplicity in this hardcoded version, we might just list them in their domestic leagues
+    // and let the sync logic handle CL specific structure if needed.
+    // But for the 'fetchedLeagues' return, we want correct grouping.
+
+    // Convert map to array
+    return Object.values(leagueMap);
 }
 
 // Fetch upcoming fixtures from football-data.org
@@ -223,10 +181,11 @@ async function fetchFixtures() {
     const leagueIdMap = { BL1: 2002, PL: 2021, PD: 2014, SA: 2019, FL1: 2015, CL: 2001 };
 
     for (const code of leagueCodes) {
-        await new Promise(r => setTimeout(r, 1200)); // Rate limit
+        await sleep(1500); // Rate limit
         try {
-            // Get next 10 scheduled matches
-            const res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15`, { headers });
+            // Get next 10 scheduled matches for 2024 season (API might not have 2025 yet)
+            // Use 2024 for now as 2025 might be empty in API
+            const res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15&season=2024`, { headers });
 
             if (res.data.matches && res.data.matches.length > 0) {
                 const matches = res.data.matches.map(m => ({
@@ -262,7 +221,9 @@ async function fetchRealPlayers(teamIds) {
         const apiTeamId = TEAM_ID_MAP[teamId];
         if (!apiTeamId) continue;
 
-        await new Promise(r => setTimeout(r, 500)); // Rate limit
+        if (!apiTeamId) continue;
+
+        await sleep(300); // Rate limit per team
         try {
             const res = await axios.get(`${API_FOOTBALL_URL}/players/squads?team=${apiTeamId}`, { headers });
 
@@ -363,14 +324,22 @@ const { prisma } = require('./db');
 
 // ... (fetch functions remain same)
 
-async function updateAllData() {
-    console.log("Starting DB Update (Prisma)...");
+async function updateAllData(options = { prioritySync: false }) {
+    console.log("Starting DB Update (Prisma)... Options:", options);
     const footballData = await fetchFootballData();
     const fixturesData = await fetchFixtures();
     const f1Data = await fetchF1Data();
 
     // Fetch Real Players
-    const allTeamIds = footballData.flatMap(l => l.teams.map(t => t.id));
+    let allTeamIds = [];
+    if (options.prioritySync) {
+        console.log("Priority Sync: Fetching players only for Top 5 teams per league.");
+        allTeamIds = footballData.flatMap(l => l.teams.slice(0, 5).map(t => t.id));
+    } else {
+        allTeamIds = footballData.flatMap(l => l.teams.map(t => t.id));
+    }
+
+    console.log(`Fetching players for ${allTeamIds.length} teams...`);
     const realPlayers = await fetchRealPlayers(allTeamIds);
 
     const CL_ID = 2001;
@@ -389,50 +358,62 @@ async function updateAllData() {
                 });
 
                 for (const team of league.teams) {
-                    // Calc Ratings / MV
-                    // Real Market Values (Approximate, Feb 2026)
-                    const TOP_CLUBS_VALUE = {
-                        "Real Madrid": 1360000000,
-                        "Manchester City": 1270000000,
-                        "Arsenal": 1100000000,
-                        "Paris Saint-Germain": 1050000000,
-                        "Bayern München": 940000000,
-                        "Chelsea": 900000000,
-                        "Liverpool": 880000000,
-                        "FC Barcelona": 860000000,
-                        "Tottenham Hotspur": 800000000,
-                        "Manchester United": 750000000,
-                        "Inter": 650000000,
-                        "Bayer 04 Leverkusen": 600000000,
-                        "AC Milan": 550000000,
-                        "Aston Villa": 500000000,
-                        "Newcastle United": 480000000,
-                        "Juventus": 470000000,
-                        "Napoli": 450000000,
-                        "Borussia Dortmund": 450000000,
-                        "RB Leipzig": 430000000,
-                        "Atlético Madrid": 400000000
-                    };
+                    // Calc Ratings / MV with Data Enrichment
+                    let baseMV = 50000000;
+                    let eloStart = LEAGUE_BASE_ELO['DEFAULT'];
+                    let baseRating = 68;
 
-                    let baseMV = 50000000; // Default 50m
-                    let eloStart = 1500;
-                    let baseRating = 72;
+                    const prestigeMult = LEAGUE_PRESTIGE[league.code] || 0.8; // Need to ensure league.code is available
 
-                    if (TOP_CLUBS_VALUE[team.name]) {
-                        baseMV = TOP_CLUBS_VALUE[team.name];
-                        eloStart = 1850 + Math.floor(Math.random() * 100);
-                        baseRating = 85;
-                    } else if (['Premier League', 'La Liga'].includes(league.name)) {
-                        baseMV = 200000000 + Math.floor(Math.random() * 100000000);
-                        eloStart = 1600;
-                        baseRating = 76;
-                    } else if (['Bundesliga', 'Serie A', 'Ligue 1'].includes(league.name)) {
-                        baseMV = 150000000 + Math.floor(Math.random() * 50000000);
-                        eloStart = 1600;
-                        baseRating = 76;
+                    // Try to match hardcoded MV
+                    if (TOP_TEAMS_MARKET_VALUE[team.name]) {
+                        baseMV = TOP_TEAMS_MARKET_VALUE[team.name];
+                        eloStart = 1800; // High base for top teams
+                        baseRating = 82;
                     } else {
-                        baseRating = 69;
+                        // Dynamic Fallback
+                        // E.g. PL teams get higher base
+                        if (['Premier League'].includes(league.name)) {
+                            baseMV = 150000000;
+                            eloStart = LEAGUE_BASE_ELO['PL'];
+                            baseRating = 75;
+                        } else if (['Bundesliga', 'La Liga'].includes(league.name)) {
+                            baseMV = 100000000;
+                            eloStart = 1550;
+                            baseRating = 74;
+                        }
                     }
+
+                    // Adjust by League Prestige
+                    baseRating = Math.floor(baseRating * prestigeMult);
+
+                    // Create/Update Team
+                    await tx.team.upsert({
+                        where: { id: team.id },
+                        update: {
+                            name: team.name,
+                            leagueId: league.id,
+                            att: team.att,
+                            def: team.def,
+                            mid: team.mid,
+                            logo: team.logo,
+                            marketValue: baseMV
+                        },
+                        create: {
+                            id: team.id,
+                            name: team.name,
+                            leagueId: league.id,
+                            att: team.att,
+                            def: team.def,
+                            mid: team.mid,
+                            prestige: Math.floor(baseRating),
+                            budget: Math.floor(baseMV * 0.2),
+                            marketValue: baseMV,
+                            eloRating: eloStart,
+                            logo: team.logo,
+                            isUserControlled: false
+                        }
+                    });
 
                     // Players
                     const existingPlayerCount = await tx.player.count({ where: { teamId: team.id } });

@@ -48,8 +48,8 @@ export default function FootballHome() {
                                 }`}>
                                 {/* Bg Gradient */}
                                 <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-2xl -mr-10 -mt-10 transition-all ${isTournament
-                                        ? 'bg-amber-500/10 group-hover:bg-amber-500/20'
-                                        : 'bg-emerald-500/10 group-hover:bg-emerald-500/20'
+                                    ? 'bg-amber-500/10 group-hover:bg-amber-500/20'
+                                    : 'bg-emerald-500/10 group-hover:bg-emerald-500/20'
                                     }`} />
 
                                 <div className="relative z-10 h-full flex flex-col justify-between">
@@ -70,10 +70,10 @@ export default function FootballHome() {
                                     </div>
 
                                     <div className="flex items-center justify-between">
-                                        <span className="text-xs font-mono text-slate-500 border border-white/10 px-2 py-1 rounded">2024/2025</span>
+                                        <span className="text-xs font-mono text-slate-500 border border-white/10 px-2 py-1 rounded">2025/2026</span>
                                         <span className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center transition-all ${isTournament
-                                                ? 'group-hover:bg-amber-500 group-hover:text-black'
-                                                : 'group-hover:bg-emerald-500 group-hover:text-black'
+                                            ? 'group-hover:bg-amber-500 group-hover:text-black'
+                                            : 'group-hover:bg-emerald-500 group-hover:text-black'
                                             }`}>
                                             →
                                         </span>

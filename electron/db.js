@@ -4,6 +4,15 @@ const prisma = new PrismaClient({
     log: ['query', 'info', 'warn', 'error'],
 });
 
+async function initDb() {
+    try {
+        await prisma.$executeRawUnsafe(`PRAGMA journal_mode = WAL;`);
+        console.log("Database WAL mode enabled.");
+    } catch (e) {
+        console.warn("Failed to enable WAL mode:", e);
+    }
+}
+
 async function getTeamPower(teamId) {
     // Fetch Top 14 Available Players (highest MV)
     const players = await prisma.player.findMany({
@@ -81,6 +90,7 @@ async function updateEloAfterMatch(homeId, awayId, homeScore, awayScore) {
 
 module.exports = {
     prisma,
+    initDb,
     getTeamPower,
     updateEloAfterMatch
 };

@@ -41,14 +41,15 @@ function createWindow() {
 
 app.whenReady().then(async () => {
     console.log('App Ready. Prisma Client initialized.');
+    await require('./db').initDb(); // Enable WAL
     createWindow();
 
     // Initial Data Check
     try {
         const leagueCount = await prisma.league.count();
         if (leagueCount === 0) {
-            console.log("Database empty. Starting initial data fetch...");
-            dataFetcher.updateAllData().then(() => {
+            console.log("Database empty. Starting initial data fetch (Priority Mode)...");
+            dataFetcher.updateAllData({ prioritySync: true }).then(() => {
                 console.log("Initial fetch complete. Reloading window...");
                 if (mainWindow) mainWindow.reload();
             }).catch(err => console.error("Initial fetch failed:", err));
@@ -209,9 +210,9 @@ ipcMain.handle('get-data', async (event, category) => {
             });
 
             // Map to expected structure
-            // We need to fetch form for each team asynchronously
+            // Optimization: Skip form fetch for 'football' listing (landing page)
             const mappedTeams = await Promise.all(standings.map(async s => {
-                const form = await getTeamForm(s.teamId, 5);
+                // const form = await getTeamForm(s.teamId, 5); // Disabled for performance
                 return {
                     ...s.team, // Spread Team data
                     // Add extra fields expected by UI
@@ -219,7 +220,7 @@ ipcMain.handle('get-data', async (event, category) => {
                     logo: s.team.logo,
                     group: s.groupName || 'League',
                     points: s.points,
-                    form: form,
+                    form: [], // Empty form for fast load
                     stats: {
                         played: s.played,
                         wins: s.wins,
