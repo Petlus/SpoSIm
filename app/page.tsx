@@ -1,8 +1,39 @@
 'use client';
 
 import React from 'react';
+import { AiSetupStatus } from './components/AiSetupStatus';
 
 export default function Home() {
+    const [setupStatus, setSetupStatus] = React.useState<'idle' | 'running' | 'complete' | 'error'>('idle');
+    const [progress, setProgress] = React.useState({ step: '', progress: 0, detail: '' });
+
+    React.useEffect(() => {
+        // @ts-ignore
+        if (window.electron) {
+            // Check persistence first
+            // @ts-ignore
+            window.electron.invoke('get-setup-status').then(settings => {
+                if (settings && settings.setupComplete) {
+                    setSetupStatus('complete');
+                } else {
+                    // Start Setup logic
+                    // @ts-ignore
+                    window.electron.on('ai-setup-progress', (event, data) => {
+                        setProgress(data);
+                        if (data.step === 'done') setSetupStatus('complete');
+                    });
+
+                    setSetupStatus('running');
+                    // @ts-ignore
+                    window.electron.startAiSetup().then(res => {
+                        if (!res.success) setSetupStatus('error');
+                    });
+                }
+            });
+        }
+    }, []);
+
+    // ... existing render ...
     return (
         <div className="min-h-screen p-8 bg-slate-950 text-white">
             <header className="mb-12 flex justify-between items-center">
@@ -12,10 +43,23 @@ export default function Home() {
                     </h1>
                     <p className="text-slate-400 mt-2 text-lg">Season 2025/2026 Simulation Engine</p>
                 </div>
-                <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-full text-xs font-mono text-slate-400">
-                    v0.1.0-alpha
+                <div className="flex items-center gap-3">
+                    {setupStatus === 'running' && (
+                        <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs font-mono text-emerald-400 animate-pulse">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                            AI Setup Active
+                        </div>
+                    )}
+                    <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-full text-xs font-mono text-slate-400">
+                        v0.1.0-alpha
+                    </div>
                 </div>
             </header>
+
+            {/* AI Setup Overlay */}
+            {setupStatus === 'running' && (
+                <AiSetupStatus status={setupStatus} progress={progress} />
+            )}
 
             <main className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
                 {/* Football Card */}

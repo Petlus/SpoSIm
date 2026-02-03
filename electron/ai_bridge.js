@@ -5,7 +5,7 @@ const ollamaManager = require('./ollama_manager');
 class AiBridge {
     constructor() {
         this.baseUrl = 'http://localhost:11434/api/generate';
-        this.defaultModel = 'llama3';
+        this.defaultModel = 'deepseek-r1:7b';
     }
 
     /**
@@ -15,44 +15,24 @@ class AiBridge {
     async generateExpertAnalysis(context) {
         const { home, away, odds, homeDetails, awayDetails, injuries } = context;
 
-        // Dynamic Model Selection
-        const availableModels = await ollamaManager.getAvailableModels();
-        // Priority: llama3 > mistral > phi3 > first available > default
         let selectedModel = this.defaultModel;
 
-        if (availableModels.length > 0) {
-            if (availableModels.some(m => m.includes('llama3'))) selectedModel = availableModels.find(m => m.includes('llama3'));
-            else if (availableModels.some(m => m.includes('mistral'))) selectedModel = availableModels.find(m => m.includes('mistral'));
-            else if (availableModels.some(m => m.includes('phi3'))) selectedModel = availableModels.find(m => m.includes('phi3'));
-            else selectedModel = availableModels[0];
-        }
+        // Ensure model exists
+        await ollamaManager.pullModelIfMissing(selectedModel);
 
         console.log(`AI Analyst using model: ${selectedModel}`);
 
         const prompt = `
-Rolle: Du bist der "SpoSim AI Analyst", ein hochspezialisierter Algorithmus für Sportwetten-Strategie und taktische Fußball-Analyse.
+Rolle: Du bist ein DeepSeek-R1 basierter Wett-Analyst. 
+Vergleiche den Gesamtmarktwert von ${home.name} (€${((home.market_value || 50000000) / 1000000).toFixed(0)}M) und ${away.name} (€${((away.market_value || 50000000) / 1000000).toFixed(0)}M) mit den Simulations-Wahrscheinlichkeiten (${odds.homeWinProb}% / ${odds.drawProb}% / ${odds.awayWinProb}%). Wo liegt der statistische Fehler der Buchmacher?
 
-Kontext der Daten:
-Kontext der Daten:
-- Heimteam: ${home.name} (Elo: ${home.elo_rating || 1500}, Marktwert: €${((home.market_value || 50000000) / 1000000).toFixed(0)}M, Form: ${homeDetails.form.join('-')})
-- Auswärtsteam: ${away.name} (Elo: ${away.elo_rating || 1500}, Marktwert: €${((away.market_value || 50000000) / 1000000).toFixed(0)}M, Form: ${awayDetails.form.join('-')})
-- Monte-Carlo-Simulation (1000 Durchläufe): 
-  * Heimsieg: ${odds.homeWinProb}%
-  * Unentschieden: ${odds.drawProb}%
-  * Auswärtssieg: ${odds.awayWinProb}%
+Zusatzdaten:
+- Elo: ${home.name} (${home.elo_rating || 1500}) vs ${away.name} (${away.elo_rating || 1500})
+- Form: ${home.name} (${homeDetails.form.join('-')}) vs ${away.name} (${awayDetails.form.join('-')})
 - Wichtige Ausfälle: ${injuries || "Keine"}
 
 Anweisung:
-Analysiere die Diskrepanz zwischen der Grundstärke der Teams und der aktuellen Form. 
-1. Identifiziere das wahrscheinlichste Szenario basierend auf den 1000 Simulationen.
-2. Erkläre kurz (1 Satz), warum die Simulation so entschieden hat (z.B. Heimvorteil vs. schwache Abwehrform).
-3. Gib eine konkrete Wett-Empfehlung ab (z.B. "Sieg Heim", "Unter 2.5 Tore" oder "Value-Tipp auf Unentschieden").
-
-Regeln:
-- Antworte in maximal 3-4 kurzen Sätzen.
-- Sprache: Deutsch.
-- Tonfall: Analytisch, präzise, seriös (wie ein Bloomberg-Terminal für Sport).
-- Keine Einleitung wie "Gerne helfe ich dir...", sondern direkt mit der Analyse starten.
+Analysiere die Daten Schritt für Schritt. Nutze deine Reasoning-Fähigkeit, um versteckte Value-Wetten zu finden.
 `;
 
         try {
@@ -60,7 +40,7 @@ Regeln:
                 model: selectedModel,
                 prompt: prompt,
                 stream: false,
-                system: "Du bist ein professioneller Wett-Analyst. Antworte kurz und präzise auf Deutsch."
+                system: "Du bist ein professioneller Wett-Analyst. Antworte in einfachem Deutsch. Nutze <think> Tags für deinen Denkprozess."
             });
 
             return { success: true, text: response.data.response, model: selectedModel };

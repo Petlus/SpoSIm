@@ -6,31 +6,26 @@ const footballSim = {};
  * @param {Object} away Team object
  */
 footballSim.simulateMatch = (home, away) => {
-    // Weighted Algo: Market Value (40%) + Elo (40%) + Form (20%)
-    const getPower = (team) => {
-        // Normalize MV (log scale, cap at 1B)
-        const mvScore = Math.min(100, Math.log10(team.market_value || 50000000) * 10); // ~7.6 * 10 = 76 for 50m, 90 for 1B
-        // Normalize Elo
-        const eloScore = (team.elo_rating || 1500) / 20; // 1500 -> 75, 2000 -> 100
+    // 1. Determine Power
+    // Expecting pre-calculated power for accuracy (includes injury logic)
+    const homePower = home.power || 100; // Fallback
+    const awayPower = away.power || 100;
 
-        return (mvScore * 0.4) + (eloScore * 0.4) + (team.form * 10 * 0.2); // Form 1.0 -> 10 * 0.2 = 2 pts
-    };
-
-    const homePower = getPower(home) * 1.10; // Home Bonus
-    const awayPower = getPower(away);
+    // Home Advantage (+10%)
+    const homeStr = homePower * 1.10;
+    const awayStr = awayPower;
 
     // Win Probability based on Diff
-    // Sigmoid Function: difference of 10 points -> ~70% win chance
+    // Sigmoid Function: difference of 15 points -> ~70% win chance
     // powerDiff = home - away
     // probability = 1 / (1 + exp(-diff / scale))
-    const powerDiff = homePower - awayPower;
-    // Scale factor 10 means 10 diff = 1/(1+e^-1) = 0.73
-    const winProb = 1 / (1 + Math.exp(-powerDiff / 10));
+    const powerDiff = homeStr - awayStr;
+    // Scale factor 12
+    const winProb = 1 / (1 + Math.exp(-powerDiff / 12));
 
-    // Determine Winner using probability
+    // 4. Determine Winner using probability
     // We still simulate goals for realism, but bias chance creation heavily
-    const homeStr = homePower;
-    const awayStr = awayPower;
+    // Using calculate homeStr/awayStr from above explicitly
 
     // Defense Factors (legacy mapping for simplicity in goal loop)
     const homeDef = homePower * 0.9;

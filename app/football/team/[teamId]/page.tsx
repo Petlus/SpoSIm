@@ -107,6 +107,7 @@ export default function TeamPage() {
                                         <th className="p-4">Pos</th>
                                         <th className="p-4 text-center">Age</th>
                                         <th className="p-4 text-center">Rating</th>
+                                        <th className="p-4 text-right">Value</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/50">
@@ -128,16 +129,19 @@ export default function TeamPage() {
                                             <td className="p-3 text-center text-slate-400">{p.age || '?'}</td>
                                             <td className="p-3 text-center">
                                                 <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold font-mono ${(p.rating || 70) >= 85 ? 'bg-amber-500/20 text-amber-400' :
-                                                        (p.rating || 70) >= 80 ? 'bg-emerald-500/20 text-emerald-400' :
-                                                            (p.rating || 70) >= 75 ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'
+                                                    (p.rating || 70) >= 80 ? 'bg-emerald-500/20 text-emerald-400' :
+                                                        (p.rating || 70) >= 75 ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'
                                                     }`}>
                                                     {p.rating || 70}
                                                 </span>
                                             </td>
+                                            <td className="p-3 text-right font-mono text-emerald-400">
+                                                {p.marketValue ? `€${(Number(p.marketValue) / 1000000).toFixed(1)}M` : '-'}
+                                            </td>
                                         </tr>
                                     )) : (
                                         <tr>
-                                            <td colSpan={5} className="p-8 text-center text-slate-500">No players found in database based on recent fetch.</td>
+                                            <td colSpan={6} className="p-8 text-center text-slate-500">No players found in database based on recent fetch.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -154,7 +158,7 @@ export default function TeamPage() {
                         <div className="flex items-center gap-2 justify-center py-4">
                             {(team.form || []).map((r: string, i: number) => (
                                 <div key={i} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${r === 'W' ? 'bg-emerald-500 text-slate-900' :
-                                        r === 'D' ? 'bg-slate-500 text-white' : 'bg-rose-500 text-white'
+                                    r === 'D' ? 'bg-slate-500 text-white' : 'bg-rose-500 text-white'
                                     }`}>
                                     {r}
                                 </div>

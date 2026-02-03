@@ -48,8 +48,10 @@ export default function LeaguePage() {
     const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'unknown' | 'not_installed' | 'offline' | 'ready'>('checking');
     const [downloadUrl, setDownloadUrl] = useState('');
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+    const [thoughtProcess, setThoughtProcess] = useState<string | null>(null);
     const [loadingAi, setLoadingAi] = useState(false);
     const [typewriterText, setTypewriterText] = useState('');
+    const [setupComplete, setSetupComplete] = useState(false);
 
     useEffect(() => {
         if (leagueId) loadData();
@@ -57,7 +59,14 @@ export default function LeaguePage() {
 
     const loadData = async () => {
         // @ts-ignore
+        // @ts-ignore
         if (window.electron) {
+            // Check persistence for AI Lock
+            // @ts-ignore
+            window.electron.invoke('get-setup-status').then(settings => {
+                if (settings && settings.setupComplete) setSetupComplete(true);
+            });
+
             // @ts-ignore
             const res = await window.electron.getData('football');
             const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
@@ -206,7 +215,13 @@ export default function LeaguePage() {
 
         setLoadingAi(false);
         if (res.success) {
-            setAiAnalysis(res.text); // aiBridge returns .text
+            // Parse <think> tags
+            const thinkMatch = res.text.match(/<think>([\s\S]*?)<\/think>/);
+            const thought = thinkMatch ? thinkMatch[1].trim() : null;
+            const cleanText = res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+
+            setAiAnalysis(cleanText);
+            setThoughtProcess(thought);
         } else {
             setAiAnalysis(`Error: ${res.error || "Unknown AI Error. Check Console."}`);
         }
@@ -504,6 +519,14 @@ export default function LeaguePage() {
                                     ) : <p className="text-slate-600">No previous meetings</p>}
                                 </div>
 
+
+                                {!setupComplete && (
+                                    <div className="mb-4 bg-slate-950/50 border border-slate-800 rounded p-3 text-xs text-slate-400 flex items-center gap-2">
+                                        <Activity size={12} className="text-amber-500" />
+                                        <span>AI Analyst is setting up. Please check the Dashboard.</span>
+                                    </div>
+                                )}
+
                                 {/* AI Analysis */}
                                 <div className="glass-panel p-4 border-t border-purple-500/30 relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-purple-900/20">
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
@@ -530,7 +553,14 @@ export default function LeaguePage() {
                                                 )}
 
                                                 {(ollamaStatus === 'ready' || ollamaStatus === 'unknown') && (
-                                                    <button onClick={askAi} className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded shadow-lg transition-all flex items-center gap-1.5 hover:scale-105 active:scale-95 border border-purple-500/20">
+                                                    <button
+                                                        onClick={askAi}
+                                                        disabled={!setupComplete}
+                                                        className={`px-3 py-1.5 text-xs font-bold rounded shadow-lg transition-all flex items-center gap-1.5 border ${setupComplete
+                                                            ? 'bg-purple-600 hover:bg-purple-500 text-white hover:scale-105 active:scale-95 border-purple-500/20'
+                                                            : 'bg-slate-800 text-slate-500 cursor-not-allowed border-slate-700'
+                                                            }`}
+                                                    >
                                                         <BrainCircuit size={14} /> Analyze Match
                                                     </button>
                                                 )}
@@ -546,7 +576,7 @@ export default function LeaguePage() {
                                                 <div className="absolute inset-0 bg-purple-500/30 rounded-full animate-ping"></div>
                                                 <BrainCircuit className="relative z-10 text-purple-400 animate-pulse" size={32} />
                                             </div>
-                                            <span className="text-xs font-mono font-medium tracking-wide">Analysing 1000 Simulations...</span>
+                                            <span className="text-xs font-mono font-medium tracking-wide">Analysing & Reasoning...</span>
                                         </div>
                                     )}
 
@@ -559,6 +589,21 @@ export default function LeaguePage() {
                                                 </div>
 
                                                 <div className="font-mono text-xs opacity-80 mb-2 text-purple-300 uppercase tracking-widest">Analyst Report</div>
+
+                                                {/* Reasoning Box */}
+                                                {thoughtProcess && (
+                                                    <details className="mb-4 bg-slate-950/50 rounded border border-purple-500/10 overflow-hidden group/details">
+                                                        <summary className="px-3 py-2 text-xs font-mono text-purple-400 cursor-pointer hover:bg-purple-500/10 transition-colors flex items-center gap-2 select-none">
+                                                            <BrainCircuit size={12} />
+                                                            <span>Show Analyst's Reasoning Process</span>
+                                                            <span className="ml-auto opacity-50 group-open/details:rotate-180 transition-transform">▼</span>
+                                                        </summary>
+                                                        <div className="p-3 text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed border-t border-purple-500/10 bg-black/20">
+                                                            {thoughtProcess}
+                                                        </div>
+                                                    </details>
+                                                )}
+
                                                 {typewriterText}
                                                 <span className="animate-pulse inline-block w-1.5 h-3.5 bg-purple-500 ml-1 align-middle"></span>
                                             </div>

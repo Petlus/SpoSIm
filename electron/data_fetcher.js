@@ -273,7 +273,8 @@ async function fetchRealPlayers(teamIds) {
                     number: p.number,
                     position: mapPosition(p.position), // GK, DEF, MID, FWD
                     rating: Math.floor(Math.random() * (94 - 68) + 68), // Mock Rating 68-94
-                    photo: p.photo
+                    photo: p.photo,
+                    isInjured: p.injured || false
                 }));
                 allPlayers[teamId] = players;
                 console.log(`-> Fetched ${players.length} real players for team ${teamId}`);
@@ -389,116 +390,334 @@ async function updateAllData() {
 
                 for (const team of league.teams) {
                     // Calc Ratings / MV
-                    let baseMV = 50000000;
+                    // Real Market Values (Approximate, Feb 2026)
+                    const TOP_CLUBS_VALUE = {
+                        "Real Madrid": 1360000000,
+                        "Manchester City": 1270000000,
+                        "Arsenal": 1100000000,
+                        "Paris Saint-Germain": 1050000000,
+                        "Bayern München": 940000000,
+                        "Chelsea": 900000000,
+                        "Liverpool": 880000000,
+                        "FC Barcelona": 860000000,
+                        "Tottenham Hotspur": 800000000,
+                        "Manchester United": 750000000,
+                        "Inter": 650000000,
+                        "Bayer 04 Leverkusen": 600000000,
+                        "AC Milan": 550000000,
+                        "Aston Villa": 500000000,
+                        "Newcastle United": 480000000,
+                        "Juventus": 470000000,
+                        "Napoli": 450000000,
+                        "Borussia Dortmund": 450000000,
+                        "RB Leipzig": 430000000,
+                        "Atlético Madrid": 400000000
+                    };
+
+                    let baseMV = 50000000; // Default 50m
                     let eloStart = 1500;
                     let baseRating = 72;
 
-                    const superClubs = ['Manchester City', 'Real Madrid', 'Bayern München', 'Paris Saint-Germain', 'Arsenal', 'Liverpool'];
-                    const topClubs = ['Borussia Dortmund', 'Bayer 04 Leverkusen', 'Inter', 'Juventus', 'AC Milan', 'FC Barcelona', 'Atlético Madrid'];
-
-                    if (superClubs.some(c => team.name.includes(c) || team.shortName === c)) {
-                        baseMV = 900000000 + Math.random() * 200000000;
-                        eloStart = 1900;
-                        baseRating = 87;
-                    } else if (topClubs.some(c => team.name.includes(c) || team.shortName === c)) {
-                        baseMV = 500000000 + Math.random() * 200000000;
-                        eloStart = 1750;
-                        baseRating = 82;
-                    } else if (['Premier League', 'La Liga', 'Bundesliga', 'Serie A', 'Ligue 1'].includes(league.name)) {
-                        baseMV = 150000000 + Math.random() * 100000000;
+                    if (TOP_CLUBS_VALUE[team.name]) {
+                        baseMV = TOP_CLUBS_VALUE[team.name];
+                        eloStart = 1850 + Math.floor(Math.random() * 100);
+                        baseRating = 85;
+                    } else if (['Premier League', 'La Liga'].includes(league.name)) {
+                        baseMV = 200000000 + Math.floor(Math.random() * 100000000);
+                        eloStart = 1600;
+                        baseRating = 76;
+                    } else if (['Bundesliga', 'Serie A', 'Ligue 1'].includes(league.name)) {
+                        baseMV = 150000000 + Math.floor(Math.random() * 50000000);
                         eloStart = 1600;
                         baseRating = 76;
                     } else {
                         baseRating = 69;
                     }
 
-                    team.def,
-                        team.mid,
-                        team.mid,
-                        team.logo
-                    );
+                    // Players
+                    const existingPlayerCount = await tx.player.count({ where: { teamId: team.id } });
+                    let squad = realPlayers[team.id];
 
-        // Generate players for these teams too
-        const pCount = countPlayers.get(team.id).c;
-        if (pCount < 11) {
-            const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
-            for (let i = 0; i < 25; i++) {
-                const pos = positions[i % positions.length];
-                const skill = Math.floor(team.mid + (Math.random() * 10 - 5));
-                insertPlayer.run(team.id, `${pos} Player ${i + 1}`, pos, 18 + Math.floor(Math.random() * 15), skill, 100, 0);
+                    // Distribution Config
+                    const PLAYER_VALUE_MAP = {
+                        "Erling Haaland": 180000000,
+                        "Kylian Mbappé": 180000000,
+                        "Jude Bellingham": 180000000,
+                        "Vinicius Junior": 150000000,
+                        "Harry Kane": 100000000,
+                        "Phil Foden": 130000000,
+                        "Bukayo Saka": 120000000,
+                        "Rodri": 110000000,
+                        "Florian Wirtz": 110000000,
+                        "Jamal Musiala": 110000000,
+                        "Lautaro Martínez": 110000000,
+                        "Victor Osimhen": 100000000,
+                        "Declan Rice": 110000000,
+                        "Federico Valverde": 100000000,
+                        "Rodrygo": 100000000,
+                        "Lamine Yamal": 150000000
+                    };
+
+                    if (squad && squad.length > 0 && existingPlayerCount === 0) {
+                        // Dynamically calc average value per position group based on Team MV
+                        // Assumption: Squad size ~25. 11 starters take 70% of value.
+                        // Simplified: Distribute Team MV roughly among 25 players.
+                        // Better: Use position weights.
+
+                        const totalMV = baseMV; // Total pot
+                        const fwCount = squad.filter(p => p.position === 'FWD' || p.position === 'ATT').length || 3;
+                        const midCount = squad.filter(p => p.position === 'MID').length || 8;
+                        const defCount = squad.filter(p => p.position === 'DEF').length || 8;
+                        const gkCount = squad.filter(p => p.position === 'GK').length || 3;
+
+                        // Pot allocation (approximate)
+                        const fwPot = totalMV * 0.35;
+                        const midPot = totalMV * 0.35;
+                        const defPot = totalMV * 0.25;
+                        const gkPot = totalMV * 0.05;
+
+                        for (const p of squad) {
+                            let pValue = 0;
+
+                            // 1. Check Manual Map
+                            if (PLAYER_VALUE_MAP[p.name]) {
+                                pValue = PLAYER_VALUE_MAP[p.name];
+                            } else {
+                                // 2. Calculate based on position tier
+                                let baseVal = 0;
+                                if (p.position === 'FWD' || p.position === 'ATT') baseVal = fwPot / fwCount;
+                                else if (p.position === 'MID') baseVal = midPot / midCount;
+                                else if (p.position === 'DEF') baseVal = defPot / defCount;
+                                else if (p.position === 'GK') baseVal = gkPot / gkCount;
+                                else baseVal = totalMV / 25; // Fallback
+
+                                // Randomize +/- 20%
+                                const variance = 0.8 + (Math.random() * 0.4);
+                                pValue = Math.floor(baseVal * variance);
+                            }
+
+                            const calibratedRating = Math.floor(baseRating + (Math.random() * 9 - 4));
+                            await tx.player.create({
+                                data: {
+                                    teamId: team.id,
+                                    name: p.name,
+                                    position: p.position,
+                                    age: p.age,
+                                    rating: calibratedRating,
+                                    marketValue: pValue,
+                                    number: p.number,
+                                    photo: p.photo
+                                }
+                            });
+                        }
+                    } else if (existingPlayerCount < 11) {
+                        // Generate Mock Players
+                        const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
+                        for (let i = 0; i < 20; i++) {
+                            const pos = positions[i % positions.length];
+                            const rating = Math.floor(baseRating + (Math.random() * 8 - 4));
+
+                            // Simple MV for mock
+                            let mockVal = Math.floor(baseMV / 20);
+
+                            await tx.player.create({
+                                data: {
+                                    teamId: team.id,
+                                    name: `${pos} Player ${i + 1}`,
+                                    position: pos,
+                                    age: 18 + Math.floor(Math.random() * 15),
+                                    rating: rating,
+                                    marketValue: mockVal,
+                                    number: i + 1,
+                                    fitness: 100
+                                }
+                            });
+                        }
+                    }
+
+                    // Standings (Domestic)
+                    await tx.standing.upsert({
+                        where: {
+                            leagueId_teamId_season_groupName: {
+                                leagueId: league.id,
+                                teamId: team.id,
+                                season: '2024/2025',
+                                groupName: 'League'
+                            }
+                        },
+                        update: {
+                            played: team.stats.played || 0,
+                            wins: team.stats.wins || 0,
+                            draws: team.stats.draws || 0,
+                            losses: team.stats.losses || 0,
+                            gf: team.stats.gf || 0,
+                            ga: team.stats.ga || 0,
+                            points: team.points || 0
+                        },
+                        create: {
+                            leagueId: league.id,
+                            teamId: team.id,
+                            season: '2024/2025',
+                            groupName: 'League',
+                            played: team.stats.played || 0,
+                            wins: team.stats.wins || 0,
+                            draws: team.stats.draws || 0,
+                            losses: team.stats.losses || 0,
+                            gf: team.stats.gf || 0,
+                            ga: team.stats.ga || 0,
+                            points: team.points || 0
+                        }
+                    });
+                }
             }
-        }
+
+            // 2. Process CHAMPIONS LEAGUE
+            if (championsLeague) {
+                console.log("Saving Champions League...");
+                await tx.league.upsert({
+                    where: { id: CL_ID },
+                    update: { name: 'Champions League' },
+                    create: { id: CL_ID, name: 'Champions League', type: 'tournament', currentSeason: '2024/2025' }
+                });
+
+                for (const team of championsLeague.teams) {
+                    // Start by checking if team exists (Upsert logic minimal for CL-only teams)
+                    // For now, assume most big teams are in domestic leagues. If not, create basic entry.
+                    // But simplified: Just Upsert Standings.
+
+                    // Note: If team doesn't exist in `teams` table, this will fail due to FK.
+                    // So we must ensure team exists.
+                    await tx.team.upsert({
+                        where: { id: team.id },
+                        update: {}, // Don't overwrite domestic data if exists
+                        create: {
+                            id: team.id,
+                            name: team.name,
+                            leagueId: CL_ID, // Assign to CL if new
+                            att: team.att, def: team.def, mid: team.mid,
+                            prestige: 80,
+                            logo: team.logo,
+                            marketValue: 200000000,
+                            eloRating: 1600
+                        }
+                    });
+
+                    await tx.standing.upsert({
+                        where: {
+                            leagueId_teamId_season_groupName: {
+                                leagueId: CL_ID,
+                                teamId: team.id,
+                                season: '2024/2025',
+                                groupName: team.group || 'A'
+                            }
+                        },
+                        update: {
+                            played: team.stats.played,
+                            wins: team.stats.wins,
+                            draws: team.stats.draws,
+                            losses: team.stats.losses,
+                            gf: team.stats.gf,
+                            ga: team.stats.ga,
+                            points: team.points
+                        },
+                        create: {
+                            leagueId: CL_ID,
+                            teamId: team.id,
+                            season: '2024/2025',
+                            groupName: team.group || 'A',
+                            played: team.stats.played,
+                            wins: team.stats.wins,
+                            draws: team.stats.draws,
+                            losses: team.stats.losses,
+                            gf: team.stats.gf,
+                            ga: team.stats.ga,
+                            points: team.points
+                        }
+                    });
+                }
+            }
+
+            // F1
+            // F1
+            if (f1Data) {
+                console.log("Saving F1 Data...");
+                await tx.f1Team.upsert({
+                    where: { id: "unknown" },
+                    update: {},
+                    create: { id: "unknown", name: "Unattached", perf: 80, reliability: 0.9 }
+                });
+
+                for (const team of f1Data.teams) {
+                    await tx.f1Team.upsert({
+                        where: { id: team.id },
+                        update: { perf: team.perf, reliability: team.reliability },
+                        create: { id: team.id, name: team.name, perf: team.perf, reliability: team.reliability }
+                    });
+                }
+
+                for (const driver of f1Data.drivers) {
+                    let tid = driver.teamId;
+                    const teamExists = f1Data.teams.some(t => t.id === tid);
+                    if (!teamExists && tid !== "unknown") {
+                        // Creating simplified team if missing
+                        await tx.f1Team.upsert({
+                            where: { id: tid },
+                            update: {},
+                            create: { id: tid, name: "Team " + tid, perf: 85, reliability: 0.9 }
+                        });
+                    }
+
+                    await tx.f1Driver.upsert({
+                        where: { id: driver.id },
+                        update: { teamId: tid, skill: driver.skill, points: driver.points },
+                        create: { id: driver.id, name: driver.name, teamId: tid, skill: driver.skill, points: driver.points }
+                    });
+                }
+            }
+
+            // Save Fixtures
+            console.log(`Saving ${fixturesData.length} fixtures...`);
+            for (const fix of fixturesData) {
+                // Check if match already exists to avoid duplicates if ID persists or use composite unique if applicable
+                // API-Football IDs are unique.
+                await tx.match.upsert({
+                    where: { id: fix.id },
+                    update: {
+                        status: fix.status,
+                        playedAt: new Date(fix.utcDate)
+                    },
+                    create: {
+                        id: fix.id,
+                        leagueId: fix.leagueId,
+                        homeTeamId: fix.homeTeamId,
+                        awayTeamId: fix.awayTeamId,
+                        matchday: fix.matchday,
+                        status: fix.status,
+                        playedAt: new Date(fix.utcDate),
+                        homeScore: 0,
+                        awayScore: 0
+                    }
+                });
+            }
+        }, {
+            timeout: 50000 // Increase timeout for large transaction
+        });
+
+        console.log("DB Update Complete.");
+        return { success: true };
+
+    } catch (err) {
+        console.error("Update Transaction Error:", err);
+        return { success: false, error: err.message };
     }
-
-                // Always insert CL standings (separate from domestic)
-                insertStanding.run(
-        CL_ID, // CL league ID for standings
-        team.id,
-        '2024/2025',
-        team.group, // GROUP A, GROUP B, etc.
-        team.stats.played || 0,
-        team.stats.wins || 0,
-        team.stats.draws || 0,
-        team.stats.losses || 0,
-        team.stats.gf || 0,
-        team.stats.ga || 0,
-        team.points || 0
-    );
-}
-        }
-
-// F1
-if (f1Data) {
-    console.log("Saving F1 Data...");
-    insertF1Team.run("unknown", "Unattached", 80, 0.9);
-
-    for (const team of f1Data.teams) {
-        insertF1Team.run(
-            team.id,
-            team.name,
-            team.perf,
-            team.reliability
-        );
-    }
-
-    for (const driver of f1Data.drivers) {
-        let tid = driver.teamId;
-        const teamExists = f1Data.teams.some(t => t.id === tid);
-        if (!teamExists && tid !== "unknown") {
-            insertF1Team.run(tid, "Team " + tid, 85, 0.9);
-        }
-
-        insertDriver.run(
-            driver.id,
-            driver.name,
-            tid,
-            driver.skill,
-            driver.points
-        );
-    }
 }
 
-// Save Fixtures
-console.log(`Saving ${fixturesData.length} fixtures...`);
-for (const fix of fixturesData) {
-    insertMatch.run(
-        fix.id,
-        fix.leagueId,
-        fix.homeTeamId,
-        fix.awayTeamId,
-        fix.matchday,
-        fix.status,
-        fix.utcDate
-    );
-}
-    });
-
-updateTx();
-console.log("DB Update Complete.");
-return { success: true };
-}
-
-module.exports = { updateAllData };
+module.exports = {
+    updateAllData,
+    fetchFootballData,
+    fetchFixtures,
+    fetchRealPlayers
+};
 
 if (require.main === module) {
     // Initialize database first when running standalone

@@ -4,7 +4,7 @@ import { Sidebar } from "./components/Sidebar"; // We will create this
 import { Topbar } from "./components/Topbar"; // We will create this
 
 export const metadata: Metadata = {
-    title: "SportSim 2026",
+    title: "BetBrain",
     description: "Next Gen Sports Simulation",
 };
 

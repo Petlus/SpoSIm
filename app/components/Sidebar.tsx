@@ -19,11 +19,9 @@ export function Sidebar() {
     return (
         <div className="flex flex-col h-full p-4">
             <div className="flex items-center gap-3 px-2 mb-10 mt-2">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-sky-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                    <span className="font-bold text-white text-lg">S</span>
-                </div>
+                <img src="/logo.png" alt="BetBrain" className="w-8 h-8 rounded-lg object-contain" />
                 <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
-                    SportSim
+                    BetBrain
                 </span>
             </div>
 

@@ -1,9 +1,16 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const db = require('./db'); // SQLite
+const { prisma } = require('./db');
 const axios = require('axios');
 const ollamaManager = require('./ollama_manager');
 const aiBridge = require('./ai_bridge');
+
+// Load Simulation Modules
+const footballSim = require('./simulation/football');
+const f1Sim = require('./simulation/f1');
+
+const dataFetcher = require('./data_fetcher');
+const dailySync = require('./data_sync');
 
 // Basic dev detection
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
@@ -15,11 +22,11 @@ function createWindow() {
         width: 1400,
         height: 900,
         webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
+            nodeIntegration: true, // Keeping existing config
+            contextIsolation: false, // Keeping existing config
             preload: path.join(__dirname, 'preload.js'),
         },
-        title: "SportSim 2026",
+        title: "BetBrain",
         autoHideMenuBar: true,
         backgroundColor: '#0f172a',
     });
@@ -33,36 +40,12 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-    // Initialize sql.js database first
-    await db.initDb();
-    console.log('Database initialized');
-
+    console.log('App Ready. Prisma Client initialized.');
     createWindow();
 
-    // Check if Data exists, if not, fetch it
+    // Initial Data Check
     try {
-        // --- DB MIGRATION CHECK ---
-        const tableInfo = db.prepare("PRAGMA table_info(teams)").all();
-        const hasElo = tableInfo.some(c => c.name === 'elo_rating');
-        const hasMV = tableInfo.some(c => c.name === 'market_value');
-
-        if (!hasElo) {
-            console.log("Migrating DB: Adding elo_rating to teams...");
-            db.prepare("ALTER TABLE teams ADD COLUMN elo_rating INTEGER DEFAULT 1500").run();
-        }
-        if (!hasMV) {
-            console.log("Migrating DB: Adding market_value to teams...");
-            db.prepare("ALTER TABLE teams ADD COLUMN market_value REAL DEFAULT 50000000").run();
-        }
-
-        const playerTableInfo = db.prepare("PRAGMA table_info(players)").all();
-        const playerHasMV = playerTableInfo.some(c => c.name === 'market_value');
-        if (!playerHasMV) {
-            console.log("Migrating DB: Adding market_value to players...");
-            db.prepare("ALTER TABLE players ADD COLUMN market_value REAL").run();
-        }
-
-        const leagueCount = db.prepare('SELECT count(*) as c FROM leagues').get()?.c || 0;
+        const leagueCount = await prisma.league.count();
         if (leagueCount === 0) {
             console.log("Database empty. Starting initial data fetch...");
             dataFetcher.updateAllData().then(() => {
@@ -79,6 +62,24 @@ app.whenReady().then(async () => {
             createWindow();
         }
     });
+
+    // Ensure AppSettings exists
+    try {
+        const settings = await prisma.appSettings.findFirst({ where: { id: 1 } });
+        if (!settings) {
+            console.log("Initializing AppSettings...");
+            await prisma.appSettings.create({
+                data: { id: 1, ollamaInstalled: false, modelDownloaded: false, setupComplete: false }
+            });
+        }
+    } catch (e) {
+        console.error("Failed to init AppSettings:", e);
+    }
+
+    // Start Daily Sync (Delayed to not block startup UI)
+    setTimeout(() => {
+        dailySync.syncIfNeeded(mainWindow);
+    }, 5000);
 });
 
 app.on('window-all-closed', () => {
@@ -87,22 +88,18 @@ app.on('window-all-closed', () => {
     }
 });
 
-// Load Simulation Modules
-const footballSim = require('./simulation/football');
-const f1Sim = require('./simulation/f1');
-const dataFetcher = require('./data_fetcher');
 
 // --- HELPER FUNCTIONS ---
 
-// Update Elo Ratings
-function updateEloRatings(homeId, awayId, homeScore, awayScore) {
+async function updateEloRatings(homeId, awayId, homeScore, awayScore) {
     const K_FACTOR = 32;
-    const home = db.prepare('SELECT elo_rating FROM teams WHERE id = ?').get(homeId);
-    const away = db.prepare('SELECT elo_rating FROM teams WHERE id = ?').get(awayId);
+    const home = await prisma.team.findUnique({ where: { id: homeId } });
+    const away = await prisma.team.findUnique({ where: { id: awayId } });
+
     if (!home || !away) return;
 
-    const R_home = home.elo_rating || 1500;
-    const R_away = away.elo_rating || 1500;
+    const R_home = home.eloRating || 1500;
+    const R_away = away.eloRating || 1500;
 
     const Qa = Math.pow(10, R_home / 400);
     const Qb = Math.pow(10, R_away / 400);
@@ -117,32 +114,35 @@ function updateEloRatings(homeId, awayId, homeScore, awayScore) {
     const newHome = Math.round(R_home + K_FACTOR * (Sa - Ea));
     const newAway = Math.round(R_away + K_FACTOR * (Sb - Eb));
 
-    db.prepare('UPDATE teams SET elo_rating = ? WHERE id = ?').run(newHome, homeId);
-    db.prepare('UPDATE teams SET elo_rating = ? WHERE id = ?').run(newAway, awayId);
+    await prisma.team.update({ where: { id: homeId }, data: { eloRating: newHome } });
+    await prisma.team.update({ where: { id: awayId }, data: { eloRating: newAway } });
 }
 
-function calculateTeamStrength(teamId) {
+async function calculateTeamStrength(teamId) {
     // Get all players
-    const players = db.prepare('SELECT position, rating FROM players WHERE team_id = ? ORDER BY rating DESC').all(teamId);
-    const team = db.prepare('SELECT prestige, league_id FROM teams WHERE id = ?').get(teamId);
-    const userPrestige = team ? team.prestige : 50;
+    const players = await prisma.player.findMany({
+        where: { teamId: teamId },
+        orderBy: { rating: 'desc' },
+        select: { position: true, rating: true, name: true }
+    });
+
+    const team = await prisma.team.findUnique({ where: { id: teamId } });
 
     // League Prestige Bonus (Top 5 Leagues)
     let prestigeBonus = 0;
-    // Hardcoded IDs for Top 5 leagues from data_fetcher would be ideal, but using heuristic or stored league info
-    if ([2002, 2021, 2014, 2019, 2015].includes(team?.league_id)) {
+    // Hardcoded IDs for Top 5 leagues from data_fetcher
+    if ([2002, 2021, 2014, 2019, 2015].includes(team?.leagueId)) {
         prestigeBonus = 5;
     }
 
     if (!players || players.length < 11) {
-        const t = db.prepare('SELECT att, mid, def FROM teams WHERE id = ?').get(teamId);
-        return t ? { att: t.att, mid: t.mid, def: t.def } : { att: 70, mid: 70, def: 70 };
+        return team ? { att: team.att || 70, mid: team.mid || 70, def: team.def || 70 } : { att: 70, mid: 70, def: 70 };
     }
 
-    // Dynamic Rating: Avg of best players in position
+    // Dynamic Rating
     const forwards = players.filter(p => p.position === 'FWD').slice(0, 3);
     const midfielders = players.filter(p => p.position === 'MID').slice(0, 4);
-    const defenders = players.filter(p => p.position === 'DEF' || p.position === 'GK').slice(0, 5); // 4 Def + 1 GK
+    const defenders = players.filter(p => p.position === 'DEF' || p.position === 'GK').slice(0, 5);
 
     const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + (b.rating || 70), 0) / arr.length : 70;
 
@@ -153,95 +153,82 @@ function calculateTeamStrength(teamId) {
     };
 }
 
-/**
- * Get the last 5 match results for a team to calculate form.
- * Returns array of 'W', 'D', 'L' (newest first).
- */
-function getTeamForm(teamId, limit = 5) {
-    const matches = db.prepare(`
-        SELECT home_team_id, away_team_id, home_score, away_score 
-        FROM matches 
-        WHERE (home_team_id = ? OR away_team_id = ?) AND status = 'finished'
-        ORDER BY played_at DESC
-        LIMIT ?
-    `).all(teamId, teamId, limit);
-
-    return matches.map(m => {
-        const isHome = m.home_team_id === teamId;
-        const teamScore = isHome ? m.home_score : m.away_score;
-        const oppScore = isHome ? m.away_score : m.home_score;
-        if (teamScore > oppScore) return 'W';
-        if (teamScore < oppScore) return 'L';
-        return 'D';
+async function getTeamForm(teamId, matchCount = 5) {
+    const matches = await prisma.match.findMany({
+        where: {
+            OR: [{ homeTeamId: teamId }, { awayTeamId: teamId }],
+            status: 'finished'
+        },
+        orderBy: { playedAt: 'desc' },
+        take: matchCount
     });
+
+    const form = matches.map(m => {
+        if (m.homeTeamId === teamId) {
+            if (m.homeScore > m.awayScore) return 'W';
+            if (m.homeScore === m.awayScore) return 'D';
+            return 'L';
+        } else {
+            if (m.awayScore > m.homeScore) return 'W';
+            if (m.homeScore === m.awayScore) return 'D';
+            return 'L';
+        }
+    }); // Newest first
+    return form;
 }
 
-/**
- * Calculate form factor based on last 5 matches.
- * W = +2%, D = 0%, L = -1%. Max boost: +10%, Max penalty: -5%.
- * GERMAN: Der Form-Faktor berechnet sich aus den letzten 5 Spielen.
- * Siege geben +2%, Remis 0%, niederlagen -1%. Max +10% / -5%.
- */
-function calculateFormFactor(teamId) {
-    const form = getTeamForm(teamId, 5);
+async function calculateFormFactor(teamId) {
+    const form = await getTeamForm(teamId, 5);
     let bonus = 0;
-    for (const result of form) {
-        if (result === 'W') bonus += 2;
-        else if (result === 'L') bonus -= 1;
+    for (const res of form) {
+        if (res === 'W') bonus += 2;
+        else if (res === 'L') bonus -= 1;
     }
-    // Clamp between -5 and +10
     bonus = Math.max(-5, Math.min(10, bonus));
-    return 1 + (bonus / 100); // e.g., 1.10 for +10%
+    return 1 + (bonus / 100);
 }
 
 // --- IPC HANDLERS ---
 ipcMain.handle('get-app-version', () => app.getVersion());
 
-ipcMain.handle('get-data', (event, category) => {
+ipcMain.handle('get-data', async (event, category) => {
     if (category === 'football') {
-        const leagues = db.prepare('SELECT * FROM leagues WHERE sport = ?').all('football');
+        const leagues = await prisma.league.findMany({ where: { sport: 'football' } });
         const result = { leagues: [] };
 
         for (const l of leagues) {
-            let teams;
+            // Get Standings (which links to Teams)
+            // Use Standings to get the teams in the league/tournament
+            const standings = await prisma.standing.findMany({
+                where: { leagueId: l.id, season: '2024/2025' },
+                include: { team: true },
+                orderBy: [
+                    { groupName: 'asc' }, // For CL
+                    { points: 'desc' }
+                ]
+            });
 
-            if (l.type === 'tournament') {
-                // For CL and other tournaments: get teams via standings (not league_id)
-                teams = db.prepare(`
-                    SELECT DISTINCT t.id, t.name, t.league_id, t.att, t.def, t.mid, t.prestige, t.logo,
-                           s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
-                    FROM standings s
-                    JOIN teams t ON t.id = s.team_id
-                    WHERE s.league_id = ? AND s.season = '2024/2025'
-                    ORDER BY s.group_name ASC, s.points DESC
-                `).all(l.id);
-            } else {
-                // For domestic leagues: get teams via league_id with their standings
-                teams = db.prepare(`
-                    SELECT DISTINCT t.id, t.name, t.league_id, t.att, t.def, t.mid, t.prestige, t.logo,
-                           s.played, s.wins, s.draws, s.losses, s.gf, s.ga, s.points, s.group_name 
-                    FROM teams t
-                    LEFT JOIN standings s ON t.id = s.team_id AND s.league_id = t.league_id AND s.season = '2024/2025'
-                    WHERE t.league_id = ?
-                    GROUP BY t.id
-                    ORDER BY s.points DESC
-                `).all(l.id);
-            }
-
-            const mappedTeams = teams.map(t => ({
-                ...t,
-                logo: t.logo,
-                group: t.group_name || 'League',
-                points: t.points || 0,
-                form: getTeamForm(t.id, 5),
-                stats: {
-                    played: t.played || 0,
-                    wins: t.wins || 0,
-                    draws: t.draws || 0,
-                    losses: t.losses || 0,
-                    gf: t.gf || 0,
-                    ga: t.ga || 0
-                }
+            // Map to expected structure
+            // We need to fetch form for each team asynchronously
+            const mappedTeams = await Promise.all(standings.map(async s => {
+                const form = await getTeamForm(s.teamId, 5);
+                return {
+                    ...s.team, // Spread Team data
+                    // Add extra fields expected by UI
+                    id: s.team.id,
+                    logo: s.team.logo,
+                    group: s.groupName || 'League',
+                    points: s.points,
+                    form: form,
+                    stats: {
+                        played: s.played,
+                        wins: s.wins,
+                        draws: s.draws,
+                        losses: s.losses,
+                        gf: s.gf,
+                        ga: s.ga
+                    }
+                };
             }));
 
             result.leagues.push({
@@ -250,9 +237,10 @@ ipcMain.handle('get-data', (event, category) => {
             });
         }
         return result;
+
     } else if (category === 'f1') {
-        const teams = db.prepare('SELECT * FROM f1_teams').all();
-        const drivers = db.prepare('SELECT * FROM f1_drivers').all();
+        const teams = await prisma.f1Team.findMany();
+        const drivers = await prisma.f1Driver.findMany();
         return {
             teams,
             drivers,
@@ -260,6 +248,86 @@ ipcMain.handle('get-data', (event, category) => {
         };
     }
     return {};
+});
+
+ipcMain.handle('get-fixtures', async (event, { leagueId, matchday }) => {
+    const bounds = await prisma.match.aggregate({
+        where: { leagueId: leagueId },
+        _min: { matchday: true },
+        _max: { matchday: true }
+    });
+
+    let targetMatchday = matchday;
+    if (!targetMatchday) {
+        const next = await prisma.match.findFirst({
+            where: {
+                leagueId: leagueId,
+                status: 'scheduled',
+                playedAt: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) }
+            },
+            orderBy: { playedAt: 'asc' },
+            select: { matchday: true }
+        });
+
+        if (next) {
+            targetMatchday = next.matchday;
+        } else {
+            const last = await prisma.match.findFirst({
+                where: { leagueId: leagueId, status: 'finished' },
+                orderBy: { playedAt: 'desc' },
+                select: { matchday: true }
+            });
+            targetMatchday = last?.matchday || bounds._min?.matchday || 1;
+        }
+    }
+
+    const matches = await prisma.match.findMany({
+        where: { leagueId: leagueId, matchday: targetMatchday },
+        include: { homeTeam: true, awayTeam: true },
+        orderBy: { playedAt: 'asc' }
+    });
+
+    return {
+        currentMatchday: targetMatchday,
+        minMatchday: bounds._min?.matchday || 1,
+        maxMatchday: bounds._max?.matchday || 34,
+        matches: matches.map(m => ({
+            id: m.id,
+            leagueId: m.leagueId,
+            matchday: m.matchday,
+            date: m.playedAt,
+            status: m.status,
+            home: { id: m.homeTeamId, name: m.homeTeam.name, logo: m.homeTeam.logo },
+            away: { id: m.awayTeamId, name: m.awayTeam.name, logo: m.awayTeam.logo },
+            homeScore: m.homeScore,
+            awayScore: m.awayScore
+        }))
+    };
+});
+
+ipcMain.handle('get-standings', async (event, { leagueId, season = '2024/2025' }) => {
+    const standings = await prisma.standing.findMany({
+        where: { leagueId: leagueId, season: season },
+        include: { team: true },
+        orderBy: [
+            { points: 'desc' },
+            { gf: 'desc' }
+        ]
+    });
+    return await Promise.all(standings.map(async s => ({
+        ...s,
+        name: s.team.name,
+        logo: s.team.logo,
+        form: await getTeamForm(s.teamId, 5),
+        stats: {
+            played: s.played,
+            wins: s.wins,
+            draws: s.draws,
+            losses: s.losses,
+            gf: s.gf,
+            ga: s.ga
+        }
+    })));
 });
 
 ipcMain.handle('update-data', async () => {
@@ -271,145 +339,103 @@ ipcMain.handle('update-data', async () => {
     }
 });
 
-ipcMain.handle('get-fixtures', (event, { leagueId, matchday }) => {
-    // Get matchday bounds first
-    const bounds = db.prepare(`
-        SELECT MIN(matchday) as minDay, MAX(matchday) as maxDay 
-        FROM matches WHERE league_id = ?
-    `).get(leagueId);
-
-    // If no specific matchday, find "current" based on date
-    let targetMatchday = matchday;
-    if (!targetMatchday) {
-        // Find the matchday of the next scheduled match (or recent past match)
-        const next = db.prepare(`
-            SELECT matchday FROM matches 
-            WHERE league_id = ? AND status = 'scheduled' AND played_at >= datetime('now', '-3 days')
-            ORDER BY played_at ASC 
-            LIMIT 1
-        `).get(leagueId);
-
-        if (next) {
-            targetMatchday = next.matchday;
-        } else {
-            // Fallback: Check if season finished (use max) or just started (use min)
-            const last = db.prepare(`SELECT matchday FROM matches WHERE league_id = ? AND status = 'finished' ORDER BY played_at DESC LIMIT 1`).get(leagueId);
-            targetMatchday = last?.matchday || bounds?.minDay || 1;
-        }
-    }
-
-    // Get fixtures for this matchday
-    const matches = db.prepare(`
-        SELECT 
-            m.id, m.league_id, m.matchday, m.status, m.played_at,
-            m.home_team_id, m.away_team_id, m.home_score, m.away_score,
-            ht.name as home_name, ht.logo as home_logo,
-            at.name as away_name, at.logo as away_logo
-        FROM matches m
-        LEFT JOIN teams ht ON m.home_team_id = ht.id
-        LEFT JOIN teams at ON m.away_team_id = at.id
-        WHERE m.league_id = ? AND m.matchday = ?
-        ORDER BY m.played_at ASC
-    `).all(leagueId, targetMatchday);
-
-    return {
-        currentMatchday: targetMatchday,
-        minMatchday: bounds?.minDay || 1,
-        maxMatchday: bounds?.maxDay || 34,
-        matches: matches.map(m => ({
-            id: m.id,
-            leagueId: m.league_id,
-            matchday: m.matchday,
-            date: m.played_at,
-            status: m.status,
-            home: { id: m.home_team_id, name: m.home_name, logo: m.home_logo },
-            away: { id: m.away_team_id, name: m.away_name, logo: m.away_logo },
-            homeScore: m.home_score,
-            awayScore: m.away_score
-        }))
-    };
-});
-
-ipcMain.handle('get-team-details', (event, teamId) => {
-    const team = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId);
+ipcMain.handle('get-team-details', async (event, teamId) => {
+    const team = await prisma.team.findUnique({ where: { id: teamId } });
     if (!team) return { error: "Team not found" };
 
-    const players = db.prepare('SELECT * FROM players WHERE team_id = ? ORDER BY rating DESC').all(teamId);
-    const standings = db.prepare(`SELECT * FROM standings WHERE team_id = ? AND season = '2024/2025'`).get(teamId);
+    const players = await prisma.player.findMany({
+        where: { teamId: teamId },
+        orderBy: { rating: 'desc' }
+    });
+    const standings = await prisma.standing.findFirst({
+        where: { teamId: teamId, season: '2024/2025' }
+    });
 
-    // Calculate real strength for UI consistency
-    const strength = calculateTeamStrength(teamId);
+    const strength = await calculateTeamStrength(teamId);
 
     return {
         ...team,
         stats: standings,
         players: players,
-        form: getTeamForm(teamId, 5),
+        form: await getTeamForm(teamId, 5),
         strength: strength,
-        // Override DB values for display
         att: strength.att,
         mid: strength.mid,
         def: strength.def
     };
 });
 
-ipcMain.handle('get-match-odds', (event, { homeId, awayId }) => {
-    const home = db.prepare('SELECT * FROM teams WHERE id = ?').get(homeId);
-    const away = db.prepare('SELECT * FROM teams WHERE id = ?').get(awayId);
+ipcMain.handle('get-match-odds', async (event, { homeId, awayId }) => {
+    const home = await prisma.team.findUnique({ where: { id: homeId } });
+    const away = await prisma.team.findUnique({ where: { id: awayId } });
 
     if (!home || !away) return { error: "Teams not found" };
 
-    // Apply form factor AND Calculate Player-Based Strength
-    const homeStr = calculateTeamStrength(homeId);
-    const awayStr = calculateTeamStrength(awayId);
+    const homeStr = await calculateTeamStrength(homeId);
+    const awayStr = await calculateTeamStrength(awayId);
 
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
-    home.form = calculateFormFactor(homeId);
-    away.form = calculateFormFactor(awayId);
+    home.form = await calculateFormFactor(homeId);
+    away.form = await calculateFormFactor(awayId);
 
-    return footballSim.simulateMatchOdds(home, away, 1000); // 1000 iterations
+    return footballSim.simulateMatchOdds(home, away, 1000);
 });
 
-ipcMain.handle('get-advanced-analysis', (event, { homeId, awayId }) => {
-    const home = db.prepare('SELECT * FROM teams WHERE id = ?').get(homeId);
-    const away = db.prepare('SELECT * FROM teams WHERE id = ?').get(awayId);
+ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
+    const home = await prisma.team.findUnique({ where: { id: homeId } });
+    const away = await prisma.team.findUnique({ where: { id: awayId } });
 
     if (!home || !away) return { error: "Teams not found" };
 
-    // Form data
-    const homeForm = getTeamForm(homeId, 5);
-    const awayForm = getTeamForm(awayId, 5);
+    const homeForm = await getTeamForm(homeId, 5);
+    const awayForm = await getTeamForm(awayId, 5);
 
-    // Form factors & Strength
-    home.form = calculateFormFactor(homeId);
-    away.form = calculateFormFactor(awayId);
+    home.form = await calculateFormFactor(homeId);
+    away.form = await calculateFormFactor(awayId);
 
-    const homeStr = calculateTeamStrength(homeId);
-    const awayStr = calculateTeamStrength(awayId);
+    const homeStr = await calculateTeamStrength(homeId);
+    const awayStr = await calculateTeamStrength(awayId);
 
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
-    // Monte-Carlo Odds (1000 iterations)
     const odds = footballSim.simulateMatchOdds(home, away, 1000);
 
-    // Head-to-Head (last 5 meetings)
-    const h2h = db.prepare(`
-        SELECT * FROM matches 
-        WHERE (home_team_id = ? AND away_team_id = ?) OR (home_team_id = ? AND away_team_id = ?)
-        ORDER BY played_at DESC
-        LIMIT 5
-    `).all(homeId, awayId, awayId, homeId);
+    const h2h = await prisma.match.findMany({
+        where: {
+            OR: [
+                { homeTeamId: homeId, awayTeamId: awayId },
+                { homeTeamId: awayId, awayTeamId: homeId }
+            ]
+        },
+        orderBy: { playedAt: 'desc' },
+        take: 5,
+        select: { homeScore: true, awayScore: true } // Simplified fetch
+    });
 
-    // Top Scorers
-    const homeScorers = db.prepare(`SELECT name, goals FROM players WHERE team_id = ? ORDER BY goals DESC LIMIT 3`).all(homeId);
-    const awayScorers = db.prepare(`SELECT name, goals FROM players WHERE team_id = ? ORDER BY goals DESC LIMIT 3`).all(awayId);
+    const homeScorers = await prisma.player.findMany({
+        where: { teamId: homeId },
+        orderBy: { goals: 'desc' },
+        take: 3,
+        select: { name: true, goals: true }
+    });
+    const awayScorers = await prisma.player.findMany({
+        where: { teamId: awayId },
+        orderBy: { goals: 'desc' },
+        take: 3,
+        select: { name: true, goals: true }
+    });
 
-    // Injuries
-    const homeInjuries = db.prepare(`SELECT name, position FROM players WHERE team_id = ? AND is_injured = 1`).all(homeId);
-    const awayInjuries = db.prepare(`SELECT name, position FROM players WHERE team_id = ? AND is_injured = 1`).all(awayId);
+    const homeInjuries = await prisma.player.findMany({
+        where: { teamId: homeId, isInjured: true },
+        select: { name: true, position: true }
+    });
+    const awayInjuries = await prisma.player.findMany({
+        where: { teamId: awayId, isInjured: true },
+        select: { name: true, position: true }
+    });
 
     return {
         odds,
@@ -434,31 +460,30 @@ ipcMain.handle('get-advanced-analysis', (event, { homeId, awayId }) => {
 });
 
 ipcMain.handle('simulate-matchday', async (event, leagueId) => {
-    // Get Teams with Form Factor
-    const teams = db.prepare(`
-        SELECT t.*, s.points
-        FROM teams t
-        LEFT JOIN standings s ON t.id = s.team_id AND s.season = '2024/2025'
-        WHERE t.league_id = ?
-    `).all(leagueId);
+    const teams = await prisma.team.findMany({
+        where: { leagueId: leagueId },
+        include: {
+            standings: {
+                where: { season: '2024/2025' },
+                select: { points: true }
+            }
+        }
+    });
 
     if (!teams || teams.length < 2) throw new Error("Not enough teams in league");
 
-    // Apply form factor and Calculate Strength for each team
-    const teamsWithForm = teams.map(t => {
-        const str = calculateTeamStrength(t.id);
+    const teamsWithForm = await Promise.all(teams.map(async t => {
+        const str = await calculateTeamStrength(t.id);
         return {
             ...t,
             att: str.att, mid: str.mid, def: str.def,
-            form: calculateFormFactor(t.id)
+            form: await calculateFormFactor(t.id)
         };
-    });
+    }));
 
-    // Create matchups (random pairing)
     const matchups = [];
     const pool = [...teamsWithForm];
 
-    // Shuffle
     for (let i = pool.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -468,111 +493,143 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
         matchups.push({ home: pool.pop(), away: pool.pop() });
     }
 
-    // Get current matchday
-    const lastMatch = db.prepare(`SELECT MAX(matchday) as m FROM matches WHERE league_id = ?`).get(leagueId);
-    const currentMatchday = (lastMatch?.m || 0) + 1;
+    const lastMatch = await prisma.match.aggregate({
+        where: { leagueId: leagueId },
+        _max: { matchday: true }
+    });
+    const currentMatchday = (lastMatch._max?.matchday || 0) + 1;
 
-    // Simulate and Update DB
     const results = [];
 
-    const runMatchday = db.transaction(() => {
-        const insertMatch = db.prepare(`
-            INSERT INTO matches (league_id, home_team_id, away_team_id, home_score, away_score, matchday, played_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'finished')
-        `);
-
-        const updateStanding = db.prepare(`
-            UPDATE standings 
-            SET played = played + 1,
-            wins = wins + ?,
-            draws = draws + ?,
-            losses = losses + ?,
-            gf = gf + ?,
-            ga = ga + ?,
-            points = points + ?
-            WHERE team_id = ? AND season = '2024/2025'
-        `);
-
-        const insertEvent = db.prepare(`
-            INSERT INTO match_events (match_id, team_id, player_id, type, minute, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
+    await prisma.$transaction(async (tx) => {
         for (const m of matchups) {
+            m.home.power = await db.getTeamPower(m.home.id);
+            m.away.power = await db.getTeamPower(m.away.id);
             const res = footballSim.simulateMatch(m.home, m.away);
 
-            // Insert match
-            const matchInfo = insertMatch.run(
-                leagueId,
-                m.home.id,
-                m.away.id,
-                res.homeGoals,
-                res.awayGoals,
-                currentMatchday
-            );
-            const matchId = matchInfo.lastInsertRowid;
-
-            // Insert Events
-            if (res.events) {
-                for (const ev of res.events) {
-                    insertEvent.run(
-                        matchId,
-                        ev.teamId,
-                        null,
-                        ev.type,
-                        ev.minute,
-                        ev.description
-                    );
+            const createdMatch = await tx.match.create({
+                data: {
+                    leagueId: leagueId,
+                    homeTeamId: m.home.id,
+                    awayTeamId: m.away.id,
+                    homeScore: res.homeGoals,
+                    awayScore: res.awayGoals,
+                    matchday: currentMatchday,
+                    playedAt: new Date(),
+                    status: 'finished'
                 }
+            });
+            const matchId = createdMatch.id;
+
+            if (res.events && res.events.length > 0) {
+                await tx.matchEvent.createMany({
+                    data: res.events.map(ev => ({
+                        matchId: matchId,
+                        teamId: ev.teamId,
+                        type: ev.type,
+                        minute: ev.minute,
+                        description: ev.description
+                    }))
+                });
             }
 
-            // Update standings (Home)
-            updateStanding.run(
-                res.homeGoals > res.awayGoals ? 1 : 0,    // wins
-                res.homeGoals === res.awayGoals ? 1 : 0,  // draws
-                res.homeGoals < res.awayGoals ? 1 : 0,    // losses
-                res.homeGoals,                            // gf
-                res.awayGoals,                            // ga
-                res.homeGoals > res.awayGoals ? 3 : (res.homeGoals === res.awayGoals ? 1 : 0), // points
-                m.home.id                                 // team_id
-            );
+            const homePts = res.homeGoals > res.awayGoals ? 3 : (res.homeGoals === res.awayGoals ? 1 : 0);
+            const homeWins = res.homeGoals > res.awayGoals ? 1 : 0;
+            const homeDraws = res.homeGoals === res.awayGoals ? 1 : 0;
+            const homeLosses = res.homeGoals < res.awayGoals ? 1 : 0;
 
-            // Update standings (Away)
-            updateStanding.run(
-                res.awayGoals > res.homeGoals ? 1 : 0,    // wins
-                res.awayGoals === res.homeGoals ? 1 : 0,  // draws
-                res.awayGoals < res.homeGoals ? 1 : 0,    // losses
-                res.awayGoals,                            // gf
-                res.homeGoals,                            // ga
-                res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0), // points
-                m.away.id                                 // team_id
-            );
+            // Upsert or Update Standings for Home
+            await tx.standing.upsert({
+                where: {
+                    leagueId_teamId_season_groupName: {
+                        leagueId: leagueId,
+                        teamId: m.home.id,
+                        season: '2024/2025',
+                        groupName: 'League' // Assuming simplified group logic for matchday sim
+                    }
+                },
+                update: {
+                    played: { increment: 1 },
+                    wins: { increment: homeWins },
+                    draws: { increment: homeDraws },
+                    losses: { increment: homeLosses },
+                    gf: { increment: res.homeGoals },
+                    ga: { increment: res.awayGoals },
+                    points: { increment: homePts }
+                },
+                create: {
+                    leagueId: leagueId,
+                    teamId: m.home.id,
+                    season: '2024/2025',
+                    groupName: 'League',
+                    played: 1,
+                    wins: homeWins,
+                    draws: homeDraws,
+                    losses: homeLosses,
+                    gf: res.homeGoals,
+                    ga: res.awayGoals,
+                    points: homePts
+                }
+            });
 
-            // Elo Update
-            updateEloRatings(m.home.id, m.away.id, res.homeGoals, res.awayGoals);
+            const awayPts = res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0);
+            const awayWins = res.awayGoals > res.homeGoals ? 1 : 0;
+            const awayDraws = res.awayGoals === res.homeGoals ? 1 : 0;
+            const awayLosses = res.awayGoals < res.homeGoals ? 1 : 0;
 
+            // Upsert or Update Standings for Away
+            await tx.standing.upsert({
+                where: {
+                    leagueId_teamId_season_groupName: {
+                        leagueId: leagueId,
+                        teamId: m.away.id,
+                        season: '2024/2025',
+                        groupName: 'League'
+                    }
+                },
+                update: {
+                    played: { increment: 1 },
+                    wins: { increment: awayWins },
+                    draws: { increment: awayDraws },
+                    losses: { increment: awayLosses },
+                    gf: { increment: res.awayGoals },
+                    ga: { increment: res.homeGoals },
+                    points: { increment: awayPts }
+                },
+                create: {
+                    leagueId: leagueId,
+                    teamId: m.away.id,
+                    season: '2024/2025',
+                    groupName: 'League',
+                    played: 1,
+                    wins: awayWins,
+                    draws: awayDraws,
+                    losses: awayLosses,
+                    gf: res.awayGoals,
+                    ga: res.homeGoals,
+                    points: awayPts
+                }
+            });
+
+            await updateEloRatings(m.home.id, m.away.id, res.homeGoals, res.awayGoals);
             results.push({ ...res, matchday: currentMatchday });
         }
+    }, { timeout: 20000 });
 
-        return results;
-    });
-
-
-
-    return runMatchday();
+    return results;
 });
 
-ipcMain.handle('simulate-match', (event, { homeId, awayId }) => {
-    const home = db.prepare('SELECT * FROM teams WHERE id = ?').get(homeId);
-    const away = db.prepare('SELECT * FROM teams WHERE id = ?').get(awayId);
+ipcMain.handle('simulate-match', async (event, { homeId, awayId }) => {
+    const home = await prisma.team.findUnique({ where: { id: homeId } });
+    const away = await prisma.team.findUnique({ where: { id: awayId } });
 
     if (!home || !away) throw new Error("Teams not found");
 
-    home.form = calculateFormFactor(homeId);
-    away.form = calculateFormFactor(awayId);
+    home.form = await calculateFormFactor(homeId);
+    away.form = await calculateFormFactor(awayId);
 
-    const homeStr = calculateTeamStrength(homeId);
-    const awayStr = calculateTeamStrength(awayId);
+    const homeStr = await calculateTeamStrength(homeId);
+    const awayStr = await calculateTeamStrength(awayId);
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
@@ -583,9 +640,7 @@ ipcMain.handle('check-ollama-status', async () => {
     console.log("Checking Ollama status...");
     try {
         const installed = await ollamaManager.checkInstalled();
-        console.log("Ollama Installed:", installed);
         const running = await ollamaManager.checkRunning();
-        console.log("Ollama Running:", running);
         return { installed, running, downloadUrl: ollamaManager.getDownloadUrl() };
     } catch (e) {
         console.error("Status Check Error:", e);
@@ -597,30 +652,108 @@ ipcMain.handle('start-ollama', async () => {
     return await ollamaManager.startService();
 });
 
+ipcMain.handle('get-setup-status', async () => {
+    let settings = await prisma.appSettings.findFirst({ where: { id: 1 } });
+    if (!settings) {
+        settings = await prisma.appSettings.create({
+            data: { id: 1, ollamaInstalled: false, modelDownloaded: false, setupComplete: false }
+        });
+    }
+    return settings;
+});
+
+ipcMain.handle('ai-setup-start', async (event) => {
+    try {
+        const win = BrowserWindow.getAllWindows()[0];
+        const sendProgress = (step, progress, detail) => {
+            if (win) win.webContents.send('ai-setup-progress', { step, progress, detail });
+        };
+
+        let settings = await prisma.appSettings.findFirst({ where: { id: 1 } });
+        if (!settings) {
+            settings = await prisma.appSettings.create({ data: { id: 1 } });
+        }
+
+        // 1. Check/Install Ollama
+        if (!settings.ollamaInstalled) {
+            sendProgress('install_ollama', 0, 'Checking Ollama installation...');
+            const installed = await ollamaManager.checkInstalled();
+
+            if (!installed) {
+                sendProgress('install_ollama', 10, 'Downloading Ollama Installer...');
+                const success = await ollamaManager.downloadAndInstallOllama();
+                if (!success) throw new Error("Ollama installation failed.");
+            }
+            await prisma.appSettings.update({ where: { id: 1 }, data: { ollamaInstalled: true } });
+        }
+        sendProgress('install_ollama', 100, 'Ollama Installed');
+
+        // 2. Start Service
+        sendProgress('start_service', 0, 'Starting Ollama Service...');
+        const running = await ollamaManager.ensureOllamaRunning();
+        if (!running) throw new Error("Could not start Ollama service.");
+        sendProgress('start_service', 100, 'Service Running');
+
+        // 3. Check/Pull Model
+        const modelName = 'deepseek-r1:1.5b';
+        if (!settings.modelDownloaded) {
+            sendProgress('pull_model', 0, `Checking model ${modelName}...`);
+
+            const models = await ollamaManager.getAvailableModels();
+            const modelExists = models.some(m => m === modelName || m.startsWith(modelName + ':')); // Use stricter check from ollama_manager
+
+            if (!modelExists) {
+                sendProgress('pull_model', 5, `Downloading ${modelName}...`);
+                await ollamaManager.pullModelProgressive(modelName, (progress, status) => {
+                    sendProgress('pull_model', progress, status);
+                });
+            }
+            await prisma.appSettings.update({ where: { id: 1 }, data: { modelDownloaded: true } });
+        }
+
+        await prisma.appSettings.update({ where: { id: 1 }, data: { setupComplete: true } });
+        sendProgress('done', 100, 'AI Setup Complete');
+        return { success: true };
+
+    } catch (e) {
+        console.error("AI Setup Failed:", e);
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
     try {
-        const home = db.prepare('SELECT * FROM teams WHERE id = ?').get(homeId);
-        const away = db.prepare('SELECT * FROM teams WHERE id = ?').get(awayId);
+        const home = await prisma.team.findUnique({ where: { id: homeId } });
+        const away = await prisma.team.findUnique({ where: { id: awayId } });
 
         if (!home || !away) return { error: "Teams not found" };
 
-        const homeStrength = calculateTeamStrength(homeId);
-        const awayStrength = calculateTeamStrength(awayId);
+        const homeStrength = await calculateTeamStrength(homeId);
+        const awayStrength = await calculateTeamStrength(awayId);
 
-        const homeDetails = {
-            ...homeStrength,
-            form: getTeamForm(homeId, 5)
-        };
-        const awayDetails = {
-            ...awayStrength,
-            form: getTeamForm(awayId, 5)
-        };
+        const homeDetails = { ...homeStrength, form: await getTeamForm(homeId, 5) };
+        const awayDetails = { ...awayStrength, form: await getTeamForm(awayId, 5) };
 
-        const h2h = db.prepare(`SELECT home_score, away_score FROM matches WHERE (home_team_id = ? AND away_team_id = ?) OR (home_team_id = ? AND away_team_id = ?) ORDER BY played_at DESC LIMIT 5`).all(homeId, awayId, awayId, homeId);
+        const h2h = await prisma.match.findMany({
+            where: {
+                OR: [
+                    { homeTeamId: homeId, awayTeamId: awayId },
+                    { homeTeamId: awayId, awayTeamId: homeId }
+                ]
+            },
+            orderBy: { playedAt: 'desc' },
+            take: 5,
+            select: { homeScore: true, awayScore: true }
+        });
 
-        // Fetch Injuries
-        const homeInjuries = db.prepare('SELECT name FROM players WHERE team_id = ? AND is_injured = 1').all(homeId).map(p => p.name);
-        const awayInjuries = db.prepare('SELECT name FROM players WHERE team_id = ? AND is_injured = 1').all(awayId).map(p => p.name);
+        const homeInjuries = await prisma.player.findMany({
+            where: { teamId: homeId, isInjured: true },
+            select: { name: true }
+        }).then(p => p.map(i => i.name));
+        const awayInjuries = await prisma.player.findMany({
+            where: { teamId: awayId, isInjured: true },
+            select: { name: true }
+        }).then(p => p.map(i => i.name));
 
         let injuryText = "Keine";
         if (homeInjuries.length > 0 || awayInjuries.length > 0) {
@@ -639,18 +772,18 @@ ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
     }
 });
 
-ipcMain.handle('simulate-f1-race', (event, trackId) => {
-    const drivers = db.prepare('SELECT * FROM f1_drivers').all();
+ipcMain.handle('simulate-f1-race', async (event, trackId) => {
+    const drivers = await prisma.f1Driver.findMany();
     const track = { name: "Bahrain", type: 'balanced' };
 
-    const driversWithCars = drivers.map(d => {
-        const team = db.prepare('SELECT * FROM f1_teams WHERE id = ?').get(d.team_id);
+    const driversWithCars = await Promise.all(drivers.map(async d => {
+        const team = await prisma.f1Team.findUnique({ where: { id: d.teamId } });
         return {
             ...d,
             teamPerf: team ? team.perf : 90,
             reliability: team ? team.reliability : 0.95
         };
-    });
+    }));
 
     return f1Sim.simulateRace(track, driversWithCars);
 });

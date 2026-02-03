@@ -75,7 +75,7 @@ class OllamaManager {
                 stdio: 'ignore',
                 shell: true
             });
-            subprocess.unref();
+            if (subprocess.unref) subprocess.unref();
 
             // Wait extended time for startup (up to 10s)
             for (let i = 0; i < 20; i++) {
@@ -87,6 +87,17 @@ class OllamaManager {
             console.error("Failed to spawn Ollama:", e);
             return false;
         }
+    }
+
+    /**
+     * Ensure Ollama is running, trying to start it if installed but not running
+     */
+    async ensureOllamaRunning() {
+        if (await this.checkRunning()) return true;
+        if (await this.checkInstalled()) {
+            return await this.startService();
+        }
+        return false;
     }
 
     /**
@@ -117,6 +128,145 @@ class OllamaManager {
 
     getDownloadUrl() {
         return "https://ollama.com/download";
+    }
+
+    /**
+     * Pull a model if it's missing from the local registry
+     * @param {string} modelName 
+     * @returns {Promise<boolean>}
+     */
+    async pullModelIfMissing(modelName) {
+        const models = await this.getAvailableModels();
+        // Check for exact match or partial match (e.g. 'deepseek-r1:7b' vs 'deepseek-r1:7b-instruct')
+        const exists = models.some(m => m === modelName || m.startsWith(modelName + ':'));
+
+        if (exists) {
+            console.log(`Model ${modelName} is already available.`);
+            return true;
+        }
+
+        console.log(`Model ${modelName} missing. Pulling... (This may take a while)`);
+
+        return new Promise((resolve) => {
+            // Find executable
+            let exe = 'ollama';
+            if (process.platform === 'win32') {
+                const localAppData = process.env.LOCALAPPDATA;
+                const defaultPath = path.join(localAppData, 'Programs', 'Ollama', 'ollama.exe');
+                if (fs.existsSync(defaultPath)) exe = defaultPath;
+            }
+
+            const p = spawn(exe, ['pull', modelName], { shell: true });
+
+            p.stdout.on('data', (data) => console.log(`[Ollama Pull] ${data}`));
+            p.stderr.on('data', (data) => console.log(`[Ollama Pull] ${data}`));
+
+            p.on('close', (code) => {
+                if (code === 0) {
+                    console.log(`Successfully pulled ${modelName}`);
+                    resolve(true);
+                } else {
+                    console.error(`Failed to pull ${modelName}. Exit code: ${code}`);
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    /**
+     * Download and Install Ollama (Windows only for now)
+     * @returns {Promise<boolean>}
+     */
+    async downloadAndInstallOllama() {
+        if (process.platform !== 'win32') return false;
+
+        const installerUrl = "https://ollama.com/download/OllamaSetup.exe";
+        const tempDir = os.tmpdir();
+        const installerPath = path.join(tempDir, 'OllamaSetup.exe');
+
+        console.log(`Downloading Ollama from ${installerUrl}...`);
+
+        try {
+            const writer = fs.createWriteStream(installerPath);
+            const response = await axios({
+                url: installerUrl,
+                method: 'GET',
+                responseType: 'stream'
+            });
+
+            response.data.pipe(writer);
+
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+
+            console.log("Download complete. Running installer silently...");
+
+            // Execute installer silently
+            return new Promise((resolve) => {
+                exec(`"${installerPath}" /silent`, (error) => {
+                    if (error) {
+                        console.error("Installer failed:", error);
+                        resolve(false);
+                    } else {
+                        console.log("Ollama installed successfully.");
+                        resolve(true);
+                    }
+                });
+            });
+
+        } catch (e) {
+            console.error("Download failed:", e);
+            return false;
+        }
+    }
+
+    /**
+     * Pull model with progress tracking via callback
+     * @param {string} modelName 
+     * @param {function} onProgress (progress: number, status: string) => void
+     * @returns {Promise<boolean>}
+     */
+    async pullModelProgressive(modelName, onProgress) {
+        try {
+            console.log(`Pulling ${modelName} with progress tracking...`);
+
+            const response = await axios({
+                method: 'post',
+                url: `${this.baseUrl}/api/pull`,
+                data: { name: modelName, stream: true },
+                responseType: 'stream'
+            });
+
+            response.data.on('data', (chunk) => {
+                const lines = chunk.toString().split('\n').filter(Boolean);
+                for (const line of lines) {
+                    try {
+                        const json = JSON.parse(line);
+                        if (json.status === 'success') {
+                            onProgress(100, "Completed");
+                        } else if (json.completed && json.total) {
+                            const percent = Math.round((json.completed / json.total) * 100);
+                            onProgress(percent, json.status);
+                        } else {
+                            onProgress(-1, json.status);
+                        }
+                    } catch (e) {
+                        // ignore parse errors for partial chunks
+                    }
+                }
+            });
+
+            return new Promise((resolve) => {
+                response.data.on('end', () => resolve(true));
+                response.data.on('error', () => resolve(false));
+            });
+
+        } catch (e) {
+            console.error("Progressive pull failed:", e.message);
+            return false;
+        }
     }
 }
 

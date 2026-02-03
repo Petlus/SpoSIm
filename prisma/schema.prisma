@@ -233,3 +233,13 @@ model Finance {
 
   @@map("finances")
 }
+
+model AppSettings {
+  id              Int     @id @default(1)
+  ollamaInstalled Boolean @default(false)
+  modelDownloaded Boolean @default(false)
+  setupComplete   Boolean @default(false)
+  lastUpdate      DateTime? @map("last_update")
+
+  @@map("app_settings")
+}
