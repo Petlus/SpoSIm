@@ -12,26 +12,31 @@ export default function FootballHome() {
         // @ts-ignore
         if (window.electron) {
             // @ts-ignore
-            window.electron.getData('football').then((data) => {
-                if (data && data.leagues) {
-                    setLeagues(data.leagues);
-                }
-                setLoading(false);
-            });
+            window.electron.getData('football')
+                .then((data: any) => {
+                    if (data && data.leagues) {
+                        setLeagues(data.leagues);
+                    }
+                    setLoading(false);
+                })
+                .catch((err: any) => {
+                    console.error("Failed to load football data:", err);
+                    setLoading(false);
+                });
         }
     }, []);
 
-    if (loading) return <div className="p-10 text-slate-400 flex items-center gap-2"><Globe className="animate-spin" size={16} /> Loading Competitions...</div>;
+    if (loading) return <div className="p-10 text-slate-400 flex items-center gap-2"><Globe className="animate-spin text-emerald-400" size={16} /> Initialisiere Datenbank (25/26)...</div>;
 
     return (
         <div className="p-10 max-w-7xl mx-auto">
             <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-8 transition-colors">
                 <ArrowLeft size={18} />
-                <span>Back to Home</span>
+                <span>Zurück zu BetBrain</span>
             </Link>
 
-            <h1 className="text-4xl font-bold text-white mb-2">Select Competition</h1>
-            <p className="text-slate-400 mb-10">Choose a league or tournament to manage.</p>
+            <h1 className="text-4xl font-bold text-white mb-2">Wähle Wettbewerb</h1>
+            <p className="text-slate-400 mb-10">Saison 2025/2026 - Wähle eine Liga oder Turnier.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {leagues.map((league: any) => {

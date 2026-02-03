@@ -11,6 +11,7 @@ const f1Sim = require('./simulation/f1');
 
 const dataFetcher = require('./data_fetcher');
 const dailySync = require('./data_sync');
+const { LEAGUES, TEAMS } = require('./constants');
 
 // Basic dev detection
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
@@ -44,18 +45,23 @@ app.whenReady().then(async () => {
     await require('./db').initDb(); // Enable WAL
     createWindow();
 
-    // Initial Data Check
+    // Initial Data Check & Seeding
     try {
-        const leagueCount = await prisma.league.count();
-        if (leagueCount === 0) {
-            console.log("Database empty. Starting initial data fetch (Priority Mode)...");
-            dataFetcher.updateAllData({ prioritySync: true }).then(() => {
-                console.log("Initial fetch complete. Reloading window...");
-                if (mainWindow) mainWindow.reload();
-            }).catch(err => console.error("Initial fetch failed:", err));
+        // Check for 25/26 data specifically
+        const seasonLeagueCount = await prisma.league.count({
+            where: { currentSeason: '2025/2026' }
+        });
+
+        if (seasonLeagueCount === 0) {
+            console.log("No 25/26 Season data found. Seeding from Constants...");
+            await seedDatabase();
+            console.log("Seeding complete. Reloading window...");
+            if (mainWindow) mainWindow.reload();
+        } else {
+            console.log("25/26 Season Data confirmed present.");
         }
     } catch (e) {
-        console.error("DB Check Failed:", e);
+        console.error("DB Check/Seed Failed:", e);
     }
 
     app.on('activate', () => {
@@ -189,38 +195,103 @@ async function calculateFormFactor(teamId) {
     return 1 + (bonus / 100);
 }
 
+async function seedDatabase() {
+    console.log("Starting DB Seed...");
+
+    // 1. Seed Leagues
+    for (const [code, info] of Object.entries(LEAGUES)) {
+        await prisma.league.upsert({
+            where: { id: info.id },
+            update: { name: info.name },
+            create: {
+                id: info.id,
+                name: info.name,
+                country: 'Europe',
+                currentSeason: '2025/2026',
+                type: code === 'CL' ? 'tournament' : 'league'
+            }
+        });
+    }
+
+    // 2. Seed Teams
+    for (const team of TEAMS) {
+        // Find league ID based on code
+        const leagueInfo = LEAGUES[team.leagueCode];
+        if (!leagueInfo) continue;
+
+        await prisma.team.upsert({
+            where: { id: team.id },
+            update: {
+                marketValue: team.marketValue,
+                eloRating: team.elo,
+                logo: team.logo
+            },
+            create: {
+                id: team.id,
+                name: team.name,
+                leagueId: leagueInfo.id,
+                att: Math.floor(team.elo / 20) - 10,
+                def: Math.floor(team.elo / 20) - 15,
+                mid: Math.floor(team.elo / 20) - 12,
+                prestige: Math.floor(team.elo / 25),
+                budget: Math.floor(team.marketValue * 0.2),
+                marketValue: team.marketValue,
+                eloRating: team.elo,
+                logo: team.logo,
+                isUserControlled: false
+            }
+        });
+
+        // Initialize Standings
+        await prisma.standing.upsert({
+            where: {
+                leagueId_teamId_season_groupName: {
+                    leagueId: leagueInfo.id,
+                    teamId: team.id,
+                    season: '2025/2026',
+                    groupName: team.leagueCode === 'CL' ? 'League Phase' : 'League'
+                }
+            },
+            update: {},
+            create: {
+                leagueId: leagueInfo.id,
+                teamId: team.id,
+                season: '2025/2026',
+                groupName: team.leagueCode === 'CL' ? 'League Phase' : 'League',
+                played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0
+            }
+        });
+    }
+    console.log("DB Seed Finished.");
+}
+
 // --- IPC HANDLERS ---
 ipcMain.handle('get-app-version', () => app.getVersion());
 
 ipcMain.handle('get-data', async (event, category) => {
-    if (category === 'football') {
-        const leagues = await prisma.league.findMany({ where: { sport: 'football' } });
-        const result = { leagues: [] };
+    try {
+        if (category === 'football') {
+            const leagues = await prisma.league.findMany({ where: { sport: 'football' } });
+            const result = { leagues: [] };
 
-        for (const l of leagues) {
-            // Get Standings (which links to Teams)
-            // Use Standings to get the teams in the league/tournament
-            const standings = await prisma.standing.findMany({
-                where: { leagueId: l.id, season: '2024/2025' },
-                include: { team: true },
-                orderBy: [
-                    { groupName: 'asc' }, // For CL
-                    { points: 'desc' }
-                ]
-            });
+            for (const l of leagues) {
+                // Get Standings (which links to Teams)
+                const standings = await prisma.standing.findMany({
+                    where: { leagueId: l.id, season: '2025/2026' },
+                    include: { team: true },
+                    orderBy: [
+                        { groupName: 'asc' },
+                        { points: 'desc' }
+                    ]
+                });
 
-            // Map to expected structure
-            // Optimization: Skip form fetch for 'football' listing (landing page)
-            const mappedTeams = await Promise.all(standings.map(async s => {
-                // const form = await getTeamForm(s.teamId, 5); // Disabled for performance
-                return {
-                    ...s.team, // Spread Team data
-                    // Add extra fields expected by UI
-                    id: s.team.id,
+                const mappedTeams = standings.map(s => ({
+                    ...s.team,
+                    id: Number(s.team.id), // Ensure Number
                     logo: s.team.logo,
                     group: s.groupName || 'League',
                     points: s.points,
-                    form: [], // Empty form for fast load
+                    form: [],
                     stats: {
                         played: s.played,
                         wins: s.wins,
@@ -229,26 +300,31 @@ ipcMain.handle('get-data', async (event, category) => {
                         gf: s.gf,
                         ga: s.ga
                     }
-                };
-            }));
+                }));
 
-            result.leagues.push({
-                ...l,
-                teams: mappedTeams
-            });
+                result.leagues.push({
+                    ...l,
+                    id: Number(l.id), // Ensure Number
+                    teams: mappedTeams
+                });
+            }
+            return result;
+
+        } else if (category === 'f1') {
+            const teams = await prisma.f1Team.findMany();
+            const drivers = await prisma.f1Driver.findMany();
+            return {
+                teams,
+                drivers,
+                tracks: [{ id: 'bahrain', name: 'Bahrain', type: 'balanced' }]
+            };
         }
-        return result;
-
-    } else if (category === 'f1') {
-        const teams = await prisma.f1Team.findMany();
-        const drivers = await prisma.f1Driver.findMany();
-        return {
-            teams,
-            drivers,
-            tracks: [{ id: 'bahrain', name: 'Bahrain', type: 'balanced' }]
-        };
+        return {};
+    } catch (e) {
+        console.error("IPC get-data Error:", e);
+        // Return empty structure on error to allow UI to render (or check error field)
+        return { error: e.message, leagues: [] };
     }
-    return {};
 });
 
 ipcMain.handle('get-fixtures', async (event, { leagueId, matchday }) => {

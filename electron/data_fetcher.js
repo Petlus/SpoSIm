@@ -562,24 +562,32 @@ async function updateAllData(options = { prioritySync: false }) {
                 });
 
                 for (const team of championsLeague.teams) {
-                    // Start by checking if team exists (Upsert logic minimal for CL-only teams)
-                    // For now, assume most big teams are in domestic leagues. If not, create basic entry.
-                    // But simplified: Just Upsert Standings.
+                    // Check if team exists to avoid FK error
+                    const existingTeam = await tx.team.findUnique({ where: { id: team.id } });
 
-                    // Note: If team doesn't exist in `teams` table, this will fail due to FK.
-                    // So we must ensure team exists.
+                    // Upsert Team:
+                    // If exists: DO NOT update leagueId (keep domestic). Update stats/rating.
+                    // If new: Create with leagueId = CL_ID.
                     await tx.team.upsert({
                         where: { id: team.id },
-                        update: {}, // Don't overwrite domestic data if exists
+                        update: {
+                            // Update dynamic stats but preserve domestic league link
+                            att: team.att, def: team.def, mid: team.mid,
+                            marketValue: team.marketValue,
+                            eloRating: team.elo,
+                            logo: team.logo
+                        },
                         create: {
                             id: team.id,
                             name: team.name,
-                            leagueId: CL_ID, // Assign to CL if new
+                            leagueId: CL_ID, // Only for teams not in domestic leagues (e.g. Slavia Prague)
                             att: team.att, def: team.def, mid: team.mid,
-                            prestige: 80,
+                            prestige: 75,
+                            budget: Math.floor(team.marketValue * 0.2),
+                            marketValue: team.marketValue,
+                            eloRating: team.elo,
                             logo: team.logo,
-                            marketValue: 200000000,
-                            eloRating: 1600
+                            isUserControlled: false
                         }
                     });
 
@@ -589,7 +597,7 @@ async function updateAllData(options = { prioritySync: false }) {
                                 leagueId: CL_ID,
                                 teamId: team.id,
                                 season: '2024/2025',
-                                groupName: team.group || 'A'
+                                groupName: 'League Phase' // Single table format
                             }
                         },
                         update: {
@@ -605,7 +613,7 @@ async function updateAllData(options = { prioritySync: false }) {
                             leagueId: CL_ID,
                             teamId: team.id,
                             season: '2024/2025',
-                            groupName: team.group || 'A',
+                            groupName: 'League Phase',
                             played: team.stats.played,
                             wins: team.stats.wins,
                             draws: team.stats.draws,

@@ -6,22 +6,38 @@ const footballSim = {};
  * @param {Object} away Team object
  */
 footballSim.simulateMatch = (home, away) => {
-    // 1. Determine Power
-    // Expecting pre-calculated power for accuracy (includes injury logic)
-    const homePower = home.power || 100; // Fallback
-    const awayPower = away.power || 100;
+    // 1. Determine Power/Elo
+    // If Elo is available (from updated DB), use it. otherwise fallback to 'power'.
+    const useElo = home.eloRating && away.eloRating;
 
-    // Home Advantage (+10%)
-    const homeStr = homePower * 1.10;
-    const awayStr = awayPower;
+    let winProb = 0.5;
+    let homeStr = 0;
+    let awayStr = 0;
 
-    // Win Probability based on Diff
-    // Sigmoid Function: difference of 15 points -> ~70% win chance
-    // powerDiff = home - away
-    // probability = 1 / (1 + exp(-diff / scale))
-    const powerDiff = homeStr - awayStr;
-    // Scale factor 12
-    const winProb = 1 / (1 + Math.exp(-powerDiff / 12));
+    if (useElo) {
+        // Elo Model
+        const homeElo = home.eloRating + 100; // Home Advantage = +100 Elo matches standard logic
+        const awayElo = away.eloRating;
+
+        homeStr = homeElo;
+        awayStr = awayElo;
+
+        const eloDiff = homeElo - awayElo;
+        // Standard Elo Formula: 1 / (1 + 10^(-diff/400))
+        winProb = 1 / (1 + Math.pow(10, -eloDiff / 400));
+    } else {
+        // Legacy Power Model
+        const homePower = home.power || 100;
+        const awayPower = away.power || 100;
+
+        // Home Advantage (+10%)
+        homeStr = homePower * 1.10;
+        awayStr = awayPower;
+
+        // Sigmoid Function
+        const powerDiff = homeStr - awayStr;
+        winProb = 1 / (1 + Math.exp(-powerDiff / 12));
+    }
 
     // 4. Determine Winner using probability
     // We still simulate goals for realism, but bias chance creation heavily
