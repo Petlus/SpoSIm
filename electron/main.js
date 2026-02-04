@@ -12,6 +12,7 @@ const f1Sim = require('./simulation/f1');
 const dataFetcher = require('./data_fetcher');
 const dailySync = require('./data_sync');
 const { LEAGUES, TEAMS } = require('./constants');
+const { CURRENT_SEASON_STR } = require('../config/season');
 
 // Basic dev detection
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
@@ -27,7 +28,7 @@ function createWindow() {
             contextIsolation: false, // Keeping existing config
             preload: path.join(__dirname, 'preload.js'),
         },
-        title: "BetBrain",
+        title: "SpoSim",
         autoHideMenuBar: true,
         backgroundColor: '#0f172a',
     });
@@ -49,7 +50,7 @@ app.whenReady().then(async () => {
     try {
         // Check for 25/26 data specifically
         const seasonLeagueCount = await prisma.league.count({
-            where: { currentSeason: '2025/2026' }
+            where: { currentSeason: CURRENT_SEASON_STR }
         });
 
         if (seasonLeagueCount === 0) {
@@ -207,7 +208,7 @@ async function seedDatabase() {
                 id: info.id,
                 name: info.name,
                 country: 'Europe',
-                currentSeason: '2025/2026',
+                currentSeason: CURRENT_SEASON_STR,
                 type: code === 'CL' ? 'tournament' : 'league'
             }
         });
@@ -248,7 +249,7 @@ async function seedDatabase() {
                 leagueId_teamId_season_groupName: {
                     leagueId: leagueInfo.id,
                     teamId: team.id,
-                    season: '2025/2026',
+                    season: CURRENT_SEASON_STR,
                     groupName: team.leagueCode === 'CL' ? 'League Phase' : 'League'
                 }
             },
@@ -256,7 +257,7 @@ async function seedDatabase() {
             create: {
                 leagueId: leagueInfo.id,
                 teamId: team.id,
-                season: '2025/2026',
+                season: CURRENT_SEASON_STR,
                 groupName: team.leagueCode === 'CL' ? 'League Phase' : 'League',
                 played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0
             }
@@ -277,7 +278,7 @@ ipcMain.handle('get-data', async (event, category) => {
             for (const l of leagues) {
                 // Get Standings (which links to Teams)
                 const standings = await prisma.standing.findMany({
-                    where: { leagueId: l.id, season: '2025/2026' },
+                    where: { leagueId: l.id, season: CURRENT_SEASON_STR },
                     include: { team: true },
                     orderBy: [
                         { groupName: 'asc' },
@@ -382,7 +383,7 @@ ipcMain.handle('get-fixtures', async (event, { leagueId, matchday }) => {
     };
 });
 
-ipcMain.handle('get-standings', async (event, { leagueId, season = '2024/2025' }) => {
+ipcMain.handle('get-standings', async (event, { leagueId, season = CURRENT_SEASON_STR }) => {
     const standings = await prisma.standing.findMany({
         where: { leagueId: leagueId, season: season },
         include: { team: true },
@@ -425,7 +426,7 @@ ipcMain.handle('get-team-details', async (event, teamId) => {
         orderBy: { rating: 'desc' }
     });
     const standings = await prisma.standing.findFirst({
-        where: { teamId: teamId, season: '2024/2025' }
+        where: { teamId: teamId, season: CURRENT_SEASON_STR }
     });
 
     const strength = await calculateTeamStrength(teamId);
@@ -541,7 +542,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
         where: { leagueId: leagueId },
         include: {
             standings: {
-                where: { season: '2024/2025' },
+                where: { season: CURRENT_SEASON_STR },
                 select: { points: true }
             }
         }
@@ -621,7 +622,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     leagueId_teamId_season_groupName: {
                         leagueId: leagueId,
                         teamId: m.home.id,
-                        season: '2024/2025',
+                        season: CURRENT_SEASON_STR,
                         groupName: 'League' // Assuming simplified group logic for matchday sim
                     }
                 },
@@ -637,7 +638,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 create: {
                     leagueId: leagueId,
                     teamId: m.home.id,
-                    season: '2024/2025',
+                    season: CURRENT_SEASON_STR,
                     groupName: 'League',
                     played: 1,
                     wins: homeWins,
@@ -660,7 +661,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     leagueId_teamId_season_groupName: {
                         leagueId: leagueId,
                         teamId: m.away.id,
-                        season: '2024/2025',
+                        season: CURRENT_SEASON_STR,
                         groupName: 'League'
                     }
                 },
@@ -676,7 +677,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 create: {
                     leagueId: leagueId,
                     teamId: m.away.id,
-                    season: '2024/2025',
+                    season: CURRENT_SEASON_STR,
                     groupName: 'League',
                     played: 1,
                     wins: awayWins,

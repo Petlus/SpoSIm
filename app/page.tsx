@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { AiSetupStatus } from './components/AiSetupStatus';
+import { CURRENT_SEASON_STR } from '../config/season';
 
 export default function Home() {
     const [setupStatus, setSetupStatus] = React.useState<'idle' | 'running' | 'complete' | 'error'>('idle');
@@ -12,7 +13,7 @@ export default function Home() {
         if (window.electron) {
             // Check persistence first
             // @ts-ignore
-            window.electron.invoke('get-setup-status').then(settings => {
+            window.electron.getSetupStatus().then(settings => {
                 if (settings && settings.setupComplete) {
                     setSetupStatus('complete');
                 } else {
@@ -41,7 +42,7 @@ export default function Home() {
                     <h1 className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-600 tracking-tight">
                         SPORSIM
                     </h1>
-                    <p className="text-slate-400 mt-2 text-lg">Season 2025/2026 Simulation Engine</p>
+                    <p className="text-slate-400 mt-2 text-lg">Season {CURRENT_SEASON_STR} Simulation Engine</p>
                 </div>
                 <div className="flex items-center gap-3">
                     {setupStatus === 'running' && (

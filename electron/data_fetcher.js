@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const { LEAGUE_PRESTIGE, LEAGUE_BASE_ELO, TOP_TEAMS_MARKET_VALUE } = require('./data_constants');
+const { CURRENT_SEASON_STR } = require('../config/season');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -354,7 +355,7 @@ async function updateAllData(options = { prioritySync: false }) {
                 await tx.league.upsert({
                     where: { id: league.id },
                     update: { name: league.name },
-                    create: { id: league.id, name: league.name, country: 'Europe', currentSeason: '2024/2025' }
+                    create: { id: league.id, name: league.name, country: 'Europe', currentSeason: CURRENT_SEASON_STR }
                 });
 
                 for (const team of league.teams) {
@@ -522,7 +523,7 @@ async function updateAllData(options = { prioritySync: false }) {
                             leagueId_teamId_season_groupName: {
                                 leagueId: league.id,
                                 teamId: team.id,
-                                season: '2024/2025',
+                                season: CURRENT_SEASON_STR,
                                 groupName: 'League'
                             }
                         },
@@ -538,7 +539,7 @@ async function updateAllData(options = { prioritySync: false }) {
                         create: {
                             leagueId: league.id,
                             teamId: team.id,
-                            season: '2024/2025',
+                            season: CURRENT_SEASON_STR,
                             groupName: 'League',
                             played: team.stats.played || 0,
                             wins: team.stats.wins || 0,
@@ -558,7 +559,7 @@ async function updateAllData(options = { prioritySync: false }) {
                 await tx.league.upsert({
                     where: { id: CL_ID },
                     update: { name: 'Champions League' },
-                    create: { id: CL_ID, name: 'Champions League', type: 'tournament', currentSeason: '2024/2025' }
+                    create: { id: CL_ID, name: 'Champions League', type: 'tournament', currentSeason: CURRENT_SEASON_STR }
                 });
 
                 for (const team of championsLeague.teams) {
@@ -596,7 +597,7 @@ async function updateAllData(options = { prioritySync: false }) {
                             leagueId_teamId_season_groupName: {
                                 leagueId: CL_ID,
                                 teamId: team.id,
-                                season: '2024/2025',
+                                season: CURRENT_SEASON_STR,
                                 groupName: 'League Phase' // Single table format
                             }
                         },
@@ -612,7 +613,7 @@ async function updateAllData(options = { prioritySync: false }) {
                         create: {
                             leagueId: CL_ID,
                             teamId: team.id,
-                            season: '2024/2025',
+                            season: CURRENT_SEASON_STR,
                             groupName: 'League Phase',
                             played: team.stats.played,
                             wins: team.stats.wins,

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Globe } from 'lucide-react';
+import { CURRENT_SEASON_STR } from '../../config/season';
 
 export default function FootballHome() {
     const [leagues, setLeagues] = useState([]);
@@ -32,11 +33,11 @@ export default function FootballHome() {
         <div className="p-10 max-w-7xl mx-auto">
             <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-8 transition-colors">
                 <ArrowLeft size={18} />
-                <span>Zurück zu BetBrain</span>
+                <span>Back to SpoSim</span>
             </Link>
 
             <h1 className="text-4xl font-bold text-white mb-2">Wähle Wettbewerb</h1>
-            <p className="text-slate-400 mb-10">Saison 2025/2026 - Wähle eine Liga oder Turnier.</p>
+            <p className="text-slate-400 mb-10">Saison {CURRENT_SEASON_STR} - Wähle eine Liga oder Turnier.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {leagues.map((league: any) => {
@@ -75,7 +76,7 @@ export default function FootballHome() {
                                     </div>
 
                                     <div className="flex items-center justify-between">
-                                        <span className="text-xs font-mono text-slate-500 border border-white/10 px-2 py-1 rounded">2025/2026</span>
+                                        <span className="text-xs font-mono text-slate-500 border border-white/10 px-2 py-1 rounded">{CURRENT_SEASON_STR}</span>
                                         <span className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center transition-all ${isTournament
                                             ? 'group-hover:bg-amber-500 group-hover:text-black'
                                             : 'group-hover:bg-emerald-500 group-hover:text-black'

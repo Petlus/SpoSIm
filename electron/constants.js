@@ -1,6 +1,7 @@
 // electron/constants.js
 
-const CURRENT_SEASON = 2025; // Saison 2025/2026
+const { CURRENT_SEASON_YEAR } = require('../config/season');
+const CURRENT_SEASON = CURRENT_SEASON_YEAR; // Alias for backwards compatibility
 
 const LEAGUES = {
     'BL1': { id: 2002, name: 'Bundesliga', prestige: 0.95 },   // 18 Teams

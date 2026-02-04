@@ -14,4 +14,12 @@ contextBridge.exposeInMainWorld('electron', {
     checkOllamaStatus: () => ipcRenderer.invoke('check-ollama-status'),
     startOllama: () => ipcRenderer.invoke('start-ollama'),
     getAiPrediction: (homeId, awayId, odds) => ipcRenderer.invoke('get-ai-prediction', { homeId, awayId, odds }),
+    // AI Setup
+    getSetupStatus: () => ipcRenderer.invoke('get-setup-status'),
+    startAiSetup: () => ipcRenderer.invoke('ai-setup-start'),
+    on: (channel, fn) => {
+        const subscription = (_event, ...args) => fn(_event, ...args);
+        ipcRenderer.on(channel, subscription);
+        return () => ipcRenderer.removeListener(channel, subscription);
+    },
 });

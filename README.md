@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SpoSim
+
+**Sports Simulation** – Desktop app for football and F1 simulation with AI-powered match analysis.
+
+## Tech Stack
+
+- **Frontend:** Next.js 16, React 19, Tailwind CSS 4
+- **Desktop:** Electron 40
+- **Database:** SQLite (Prisma ORM)
+- **Data:** football-data.org, api-football.com, F1 API
+- **AI:** Ollama (local LLM for match predictions)
+
+## Features
+
+- **Football:** Bundesliga, Premier League, La Liga, Serie A, Ligue 1, Champions League
+- **Match simulation:** Elo-based engine with form, injuries, home advantage
+- **AI analysis:** Ollama integration for expert predictions (optional setup)
+- **F1:** Data models ready, simulation in development
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This starts the Next.js dev server and launches the Electron window. The app runs at `http://localhost:3000` inside Electron.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Next.js + Electron |
+| `npm run build` | Build Next.js for production |
+| `npm run update-data` | Fetch latest data from APIs |
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+├── app/           # Next.js App Router (pages, components)
+├── config/        # Central config (e.g. season)
+├── data/          # SQLite database
+├── electron/      # Main process, IPC, simulation, data sync
+├── prisma/        # Schema
+└── public/        # Static assets
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Season Configuration
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The current season is defined in `config/season.js`. Update `CURRENT_SEASON_YEAR` when starting a new season.

@@ -2,6 +2,7 @@
 
 import { Bell, Search, UserCircle, Calendar } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { CURRENT_SEASON_STR } from '../../config/season';
 
 export function Topbar() {
     const [date, setDate] = useState('');
@@ -22,7 +23,7 @@ export function Topbar() {
             {/* Date Display */}
             <div className="flex items-center gap-3">
                 <div className="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-xs font-mono text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
-                    SEASON 2024/2025
+                    SEASON {CURRENT_SEASON_STR}
                 </div>
                 <div className="flex items-center gap-1.5 text-slate-400 text-sm">
                     <Calendar size={14} className="text-slate-500" />

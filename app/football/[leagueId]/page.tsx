@@ -63,7 +63,7 @@ export default function LeaguePage() {
         if (window.electron) {
             // Check persistence for AI Lock
             // @ts-ignore
-            window.electron.invoke('get-setup-status').then(settings => {
+            window.electron.getSetupStatus().then(settings => {
                 if (settings && settings.setupComplete) setSetupComplete(true);
             });
 

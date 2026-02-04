@@ -1,6 +1,7 @@
 const { prisma } = require('./db');
 const dataFetcher = require('./data_fetcher');
 const { BrowserWindow } = require('electron');
+const { CURRENT_SEASON_STR } = require('../config/season');
 
 class DailySyncService {
     constructor() {
@@ -72,7 +73,7 @@ class DailySyncService {
                             leagueId_teamId_season_groupName: {
                                 leagueId: league.id,
                                 teamId: team.id,
-                                season: '2024/2025',
+                                season: CURRENT_SEASON_STR,
                                 groupName: 'League'
                             }
                         },
@@ -88,7 +89,7 @@ class DailySyncService {
                         create: {
                             leagueId: league.id,
                             teamId: team.id,
-                            season: '2024/2025',
+                            season: CURRENT_SEASON_STR,
                             groupName: 'League',
                             played: team.stats.played || 0,
                             wins: team.stats.wins || 0,
