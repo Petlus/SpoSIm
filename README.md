@@ -1,4 +1,4 @@
-# SpoSim
+# BetBrain
 
 **Sports Simulation** – Desktop app for football and F1 simulation with AI-powered match analysis.
 

@@ -33,7 +33,7 @@ export default function FootballHome() {
         <div className="p-10 max-w-7xl mx-auto">
             <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-8 transition-colors">
                 <ArrowLeft size={18} />
-                <span>Back to SpoSim</span>
+                <span>Back to BetBrain</span>
             </Link>
 
             <h1 className="text-4xl font-bold text-white mb-2">Wähle Wettbewerb</h1>

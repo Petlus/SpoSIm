@@ -4,8 +4,8 @@ import { Sidebar } from "./components/Sidebar"; // We will create this
 import { Topbar } from "./components/Topbar"; // We will create this
 
 export const metadata: Metadata = {
-    title: "SpoSim",
-    description: "Sports Simulation – Football & F1",
+    title: "BetBrain",
+    description: "Next Gen Sports Simulation",
 };
 
 export default function RootLayout({

@@ -40,7 +40,7 @@ export default function Home() {
             <header className="mb-12 flex justify-between items-center">
                 <div>
                     <h1 className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-600 tracking-tight">
-                        SPORSIM
+                        BetBrain
                     </h1>
                     <p className="text-slate-400 mt-2 text-lg">Season {CURRENT_SEASON_STR} Simulation Engine</p>
                 </div>

@@ -28,7 +28,7 @@ function createWindow() {
             contextIsolation: false, // Keeping existing config
             preload: path.join(__dirname, 'preload.js'),
         },
-        title: "SpoSim",
+        title: "BetBrain",
         autoHideMenuBar: true,
         backgroundColor: '#0f172a',
     });

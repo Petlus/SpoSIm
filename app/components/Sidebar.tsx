@@ -19,9 +19,9 @@ export function Sidebar() {
     return (
         <div className="flex flex-col h-full p-4">
             <div className="flex items-center gap-3 px-2 mb-10 mt-2">
-                <img src="/logo.png" alt="SpoSim" className="w-8 h-8 rounded-lg object-contain" />
+                <img src="/logo.png" alt="BetBrain" className="w-8 h-8 rounded-lg object-contain" />
                 <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
-                    SpoSim
+                    BetBrain
                 </span>
             </div>
 
