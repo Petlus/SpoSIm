@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { ArrowLeft, Globe } from 'lucide-react';
 import { CURRENT_SEASON_STR } from '../../config/season';
 
@@ -55,10 +54,10 @@ export default function FootballHome() {
 
     return (
         <div className="p-10 max-w-7xl mx-auto">
-            <Link href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-8 transition-colors">
+            <a href="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-8 transition-colors">
                 <ArrowLeft size={18} />
                 <span>Back to BetBrain</span>
-            </Link>
+            </a>
 
             <h1 className="text-4xl font-bold text-white mb-2">Select Competition</h1>
             <p className="text-slate-400 mb-10">Season {CURRENT_SEASON_STR} - Select a league or tournament.</p>
@@ -73,7 +72,7 @@ export default function FootballHome() {
                     const isTournament = league.type === 'tournament';
 
                     return (
-                        <Link key={league.id} href={href} className="block group">
+                        <a key={league.id} href={href} className="block group">
                             <div className={`h-48 glass-card rounded-2xl p-6 relative overflow-hidden transition-all duration-300 ${isTournament ? 'group-hover:border-amber-500/30' : 'group-hover:border-emerald-500/30'
                                 }`}>
                                 {/* Bg Gradient */}
@@ -110,7 +109,7 @@ export default function FootballHome() {
                                     </div>
                                 </div>
                             </div>
-                        </Link>
+                        </a>
                     );
                 })}
             </div>

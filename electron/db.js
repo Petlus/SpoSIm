@@ -1,4 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const path = require('path');
+const { PrismaClient } = require(path.join(__dirname, '..', 'generated', 'prisma-client'));
 
 const prisma = new PrismaClient({
     log: ['query', 'info', 'warn', 'error'],

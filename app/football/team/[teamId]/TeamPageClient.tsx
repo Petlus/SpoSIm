@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { ArrowLeft, User, Shield, Activity, Star, Trophy, Target, Sparkles, TrendingUp } from 'lucide-react';
 
 export default function TeamPageClient() {

@@ -1,10 +1,11 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../generated/prisma-client"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = "file:c:/Users/david/Desktop/SpoSim/data/sports.db"
+  url      = env("DATABASE_URL")
 }
 
 model League {

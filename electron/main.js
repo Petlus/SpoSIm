@@ -1,6 +1,10 @@
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
+const fs = require('fs');
+
+// app:// protocol registered in electron/index.js (bootstrap)
 const { autoUpdater } = require('electron-updater');
 const db = require('./db');
 const { prisma } = db;
@@ -40,13 +44,33 @@ function createWindow() {
 
     const startUrl = isDev
         ? 'http://localhost:3000'
-        : `file://${path.join(__dirname, '../out/index.html')}`;
+        : 'app://./index.html';
 
     console.log(`Loading URL: ${startUrl}`);
     mainWindow.loadURL(startUrl);
 }
 
 app.whenReady().then(async () => {
+    // Register app:// protocol to serve static files (fixes file:// path resolution)
+    if (!isDev) {
+        const outDir = path.join(__dirname, '../out');
+        protocol.handle('app', (request) => {
+            const url = new URL(request.url);
+            let filePath = (url.pathname || '/').replace(/^\//, '') || 'index.html';
+            const fullPath = path.join(outDir, filePath);
+            let toServe;
+            // Prefer .html file (e.g. football.html) over directory (e.g. football/)
+            if (fs.existsSync(fullPath + '.html')) {
+                toServe = fullPath + '.html';
+            } else if (fs.existsSync(fullPath)) {
+                const stat = fs.statSync(fullPath);
+                toServe = stat.isDirectory() ? path.join(fullPath, 'index.html') : fullPath;
+            } else {
+                toServe = path.join(outDir, 'index.html');
+            }
+            return net.fetch(pathToFileURL(toServe).toString());
+        });
+    }
     console.log('App Ready. Prisma Client initialized.');
     await require('./db').initDb(); // Enable WAL
     createWindow();

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { Building2, Wallet, Users, Calendar, TrendingUp, ArrowRight } from 'lucide-react';
 
 export default function ManagerPage() {
@@ -33,9 +32,9 @@ export default function ManagerPage() {
                     <p className="text-slate-400 text-sm mb-6">
                         Go to a League and select a team to take control.
                     </p>
-                    <Link href="/football" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white transition-all">
+                    <a href="/football" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white transition-all">
                         Browse Leagues <ArrowRight size={18} />
-                    </Link>
+                    </a>
                 </div>
             </div>
         );

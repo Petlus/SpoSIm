@@ -1,9 +1,36 @@
+# Dependencies
 node_modules
+
+# Next.js
 .next
 out
+
+# Prisma generated client
+generated
+
+# Build output
 dist
-.DS_Store
-*.log
+release
+
+# Environment
 .env
+
+# Database
 data/sports.db
+data/sports.db-shm
+data/sports.db-wal
+
+# Scraper / Scripts
+scripts/
+requirements.txt
+__pycache__
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
 .vscode
+
+# Logs
+*.log

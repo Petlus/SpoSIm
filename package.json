@@ -2,7 +2,7 @@
   "name": "betbrain",
   "version": "1.0.0",
   "private": true,
-  "main": "electron/main.js",
+  "main": "electron/index.js",
   "author": "BetBrain",
   "repository": {
     "type": "git",
@@ -11,8 +11,8 @@
   "scripts": {
     "dev": "concurrently -k \"next dev\" \"wait-on tcp:3000 && electron .\"",
     "build": "next build",
-    "build:electron": "next build && electron-builder",
-    "build:electron:win": "next build && electron-builder --win",
+    "build:electron": "next build && prisma generate && electron-builder",
+    "build:electron:win": "next build && prisma generate && electron-builder --win",
     "start": "next start",
     "lint": "eslint",
     "update-data": "node electron/data_fetcher.js",
@@ -56,10 +56,13 @@
       "out/**/*",
       "electron/**/*",
       "node_modules/**/*",
+      "generated/**/*",
       "prisma/**/*",
       "config/**/*",
+      "data/sports.db",
       "package.json"
     ],
+    "asar": false,
     "extraResources": [
       {
         "from": "prisma",

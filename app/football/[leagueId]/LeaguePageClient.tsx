@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
 import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit, Target } from 'lucide-react';
 
 // Form Dot Component
@@ -258,9 +257,9 @@ export default function LeaguePageClient() {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
-                    <Link href="/football" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-2 transition-colors text-xs uppercase tracking-widest font-bold">
+                    <a href="/football" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-2 transition-colors text-xs uppercase tracking-widest font-bold">
                         <ArrowLeft size={12} /> Return to Leagues
-                    </Link>
+                    </a>
                     <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight flex items-center gap-3">
                         {data.name}
                         <span className="px-3 py-1 bg-slate-800 rounded text-sm font-normal text-slate-400 border border-slate-700">Season 2025/26</span>
@@ -435,9 +434,9 @@ export default function LeaguePageClient() {
                                             <div className="w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                                 {team.logo ? <img src={team.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                             </div>
-                                            <Link href={`/football/team/${team.id}`} className="text-slate-100 truncate hover:text-emerald-400 hover:underline decoration-emerald-500/50 underline-offset-4 transition-all">
+                                            <a href={`/football/team/${team.id}`} className="text-slate-100 truncate hover:text-emerald-400 hover:underline decoration-emerald-500/50 underline-offset-4 transition-all">
                                                 {team.name}
-                                            </Link>
+                                            </a>
                                         </td>
                                         <td className="text-center">
                                             <div className="flex items-center justify-center gap-1">
@@ -514,9 +513,9 @@ export default function LeaguePageClient() {
                                             {f.home.logo ? <img src={f.home.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                         </div>
                                         {f.home.id ? (
-                                            <Link href={`/football/team/${f.home.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
+                                            <a href={`/football/team/${f.home.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
                                                 {f.home.short_name || f.home.name}
-                                            </Link>
+                                            </a>
                                         ) : (
                                             <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
                                         )}
@@ -524,9 +523,9 @@ export default function LeaguePageClient() {
                                     <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
                                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
                                         {f.away.id ? (
-                                            <Link href={`/football/team/${f.away.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
+                                            <a href={`/football/team/${f.away.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
                                                 {f.away.short_name || f.away.name}
-                                            </Link>
+                                            </a>
                                         ) : (
                                             <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
                                         )}

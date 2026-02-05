@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Sidebar } from "./components/Sidebar"; // We will create this
-import { Topbar } from "./components/Topbar"; // We will create this
+import { Sidebar } from "./components/Sidebar";
+import { Topbar } from "./components/Topbar";
+import { UpdateNotification } from "./components/UpdateNotification";
 
 export const metadata: Metadata = {
     title: "BetBrain",
@@ -34,6 +35,7 @@ export default function RootLayout({
                         {children}
                     </main>
                 </div>
+                <UpdateNotification />
             </body>
         </html>
     );

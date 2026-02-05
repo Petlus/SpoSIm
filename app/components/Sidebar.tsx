@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Trophy, Flag, Settings, Zap, Briefcase } from 'lucide-react';
 
@@ -47,7 +46,7 @@ export function Sidebar() {
                             )}
                         </div>
                     ) : (
-                        <Link
+                        <a
                             key={item.name}
                             href={item.path}
                             className={`flex items-center gap-4 px-3 py-3 rounded-xl transition-all duration-300 group ${isActive(item.path)
@@ -57,7 +56,7 @@ export function Sidebar() {
                         >
                             <item.icon size={22} className={`${isActive(item.path) ? 'text-emerald-400' : 'text-slate-500 group-hover:text-white'} transition-colors`} />
                             <span className="font-medium hidden md:block">{item.name}</span>
-                        </Link>
+                        </a>
                     )
                 ))}
             </nav>
