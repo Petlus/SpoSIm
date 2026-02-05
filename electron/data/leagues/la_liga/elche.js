@@ -2,7 +2,7 @@
 module.exports = {
     name: "Elche CF",
     shortName: "ELC",
-    kickerSlug: "elche-cf",
+    kickerSlug: "fc-elche",
     marketValue: 60000000,
     squad: []
 };

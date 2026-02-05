@@ -2,7 +2,7 @@
 module.exports = {
     name: "Villarreal CF",
     shortName: "VIL",
-    kickerSlug: "villarreal",
+    kickerSlug: "fc-villarreal",
     marketValue: 230000000,
     squad: []
 };

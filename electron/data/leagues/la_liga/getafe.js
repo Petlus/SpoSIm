@@ -2,7 +2,7 @@
 module.exports = {
     name: "Getafe CF",
     shortName: "GET",
-    kickerSlug: "getafe-cf",
+    kickerSlug: "fc-getafe",
     marketValue: 100000000,
     squad: []
 };
