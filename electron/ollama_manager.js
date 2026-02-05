@@ -1,4 +1,5 @@
 const { exec, spawn } = require('child_process');
+const { PassThrough } = require('stream');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
@@ -175,9 +176,10 @@ class OllamaManager {
 
     /**
      * Download and Install Ollama (Windows only for now)
+     * @param {function} [onProgress] - (progress: number, status: string) => void
      * @returns {Promise<boolean>}
      */
-    async downloadAndInstallOllama() {
+    async downloadAndInstallOllama(onProgress) {
         if (process.platform !== 'win32') return false;
 
         const installerUrl = "https://ollama.com/download/OllamaSetup.exe";
@@ -187,19 +189,33 @@ class OllamaManager {
         console.log(`Downloading Ollama from ${installerUrl}...`);
 
         try {
-            const writer = fs.createWriteStream(installerPath);
             const response = await axios({
                 url: installerUrl,
                 method: 'GET',
                 responseType: 'stream'
             });
 
-            response.data.pipe(writer);
+            const totalLength = response.headers['content-length'] ? parseInt(response.headers['content-length'], 10) : 0;
+            let downloadedLength = 0;
+
+            const progressStream = new PassThrough();
+            progressStream.on('data', (chunk) => {
+                downloadedLength += chunk.length;
+                if (onProgress && totalLength > 0) {
+                    const percent = Math.min(95, Math.round((downloadedLength / totalLength) * 90));
+                    onProgress(percent, `Downloading Ollama Installer... ${percent}%`);
+                }
+            });
+
+            const writer = fs.createWriteStream(installerPath);
+            response.data.pipe(progressStream).pipe(writer);
 
             await new Promise((resolve, reject) => {
                 writer.on('finish', resolve);
                 writer.on('error', reject);
             });
+
+            if (onProgress) onProgress(95, 'Installing Ollama...');
 
             console.log("Download complete. Running installer silently...");
 

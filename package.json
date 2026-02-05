@@ -1,11 +1,18 @@
 {
   "name": "betbrain",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "main": "electron/main.js",
+  "author": "BetBrain",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/YOUR_REPO.git"
+  },
   "scripts": {
     "dev": "concurrently -k \"next dev\" \"wait-on tcp:3000 && electron .\"",
     "build": "next build",
+    "build:electron": "next build && electron-builder",
+    "build:electron:win": "next build && electron-builder --win",
     "start": "next start",
     "lint": "eslint",
     "update-data": "node electron/data_fetcher.js",
@@ -17,6 +24,7 @@
     "@prisma/client": "^5.22.0",
     "axios": "^1.13.4",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.3.9",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "react": "19.2.3",
@@ -30,11 +38,51 @@
     "@types/react-dom": "^19",
     "concurrently": "^9.2.1",
     "electron": "^40.1.0",
+    "electron-builder": "^25.1.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "prisma": "^5.22.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.betbrain.app",
+    "productName": "BetBrain",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "prisma/**/*",
+      "config/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "prisma",
+        "to": "prisma",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "public/logo.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "YOUR_USERNAME",
+      "repo": "YOUR_REPO",
+      "vPrefixedTagName": true,
+      "releaseType": "release"
+    }
   }
 }

@@ -6,6 +6,7 @@ import { Topbar } from "./components/Topbar"; // We will create this
 export const metadata: Metadata = {
     title: "BetBrain",
     description: "Next Gen Sports Simulation",
+    icons: { icon: "/logo.png", apple: "/logo.png" },
 };
 
 export default function RootLayout({
@@ -15,6 +16,9 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en">
+            <head>
+                <link rel="icon" href="/logo.png" type="image/png" />
+            </head>
             <body className="antialiased flex h-screen bg-[#050505] text-white overflow-hidden bg-[url('/bg-grid.svg')] bg-fixed">
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/20 via-slate-900/50 to-black pointer-events-none z-0"></div>
                 

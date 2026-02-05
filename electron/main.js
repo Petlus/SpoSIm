@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const { autoUpdater } = require('electron-updater');
 const db = require('./db');
 const { prisma } = db;
 const axios = require('axios');
@@ -22,9 +23,11 @@ const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 let mainWindow;
 
 function createWindow() {
+    const iconPath = path.join(__dirname, '../public/logo.png');
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
+        icon: iconPath,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -47,6 +50,18 @@ app.whenReady().then(async () => {
     console.log('App Ready. Prisma Client initialized.');
     await require('./db').initDb(); // Enable WAL
     createWindow();
+
+    // Auto-update: only when packaged (production)
+    if (app.isPackaged) {
+        autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+        autoUpdater.on('update-available', () => {
+            if (mainWindow) mainWindow.webContents.send('update-available');
+        });
+        autoUpdater.on('update-downloaded', () => {
+            if (mainWindow) mainWindow.webContents.send('update-downloaded');
+            autoUpdater.quitAndInstall(false, true);
+        });
+    }
 
     // Initial Data Check & Seeding
     try {
@@ -1273,7 +1288,9 @@ ipcMain.handle('ai-setup-start', async (event) => {
 
             if (!installed) {
                 sendProgress('install_ollama', 10, 'Downloading Ollama Installer...');
-                const success = await ollamaManager.downloadAndInstallOllama();
+                const success = await ollamaManager.downloadAndInstallOllama((progress, status) => {
+                    sendProgress('install_ollama', progress, status);
+                });
                 if (!success) throw new Error("Ollama installation failed.");
             }
             await prisma.appSettings.update({ where: { id: 1 }, data: { ollamaInstalled: true } });

@@ -1,16 +1,20 @@
 'use client';
 
 import React from 'react';
-import { AiSetupStatus } from './components/AiSetupStatus';
+import { StartupScreen } from './components/StartupScreen';
 import { CURRENT_SEASON_STR } from '../config/season';
 
 export default function Home() {
     const [setupStatus, setSetupStatus] = React.useState<'idle' | 'running' | 'complete' | 'error'>('idle');
     const [progress, setProgress] = React.useState({ step: '', progress: 0, detail: '' });
+    const [inElectron, setInElectron] = React.useState(false);
+
+    const showStartup = setupStatus === 'running' || (setupStatus === 'idle' && inElectron);
 
     React.useEffect(() => {
-        const electron = window.electron;
+        const electron = typeof window !== 'undefined' ? window.electron : undefined;
         if (electron) {
+            setInElectron(true);
             let unsubscribe: (() => void) | undefined;
             // Check persistence first
             electron.getSetupStatus().then(settings => {
@@ -59,9 +63,9 @@ export default function Home() {
                 </div>
             </header>
 
-            {/* AI Setup Overlay */}
-            {setupStatus === 'running' && (
-                <AiSetupStatus status={setupStatus} progress={progress} />
+            {/* Startup Screen Overlay - show while checking or running setup (Electron only) */}
+            {showStartup && (
+                <StartupScreen status="running" progress={progress} />
             )}
 
             <main className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
