@@ -10,6 +10,7 @@ const fs = require('fs');
 // Must run before app.ready
 protocol.registerSchemesAsPrivileged([
     { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    { scheme: 'splash-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
 app.whenReady().then(() => {

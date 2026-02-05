@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    search: (query) => ipcRenderer.invoke('search', { query }),
     getData: (category) => ipcRenderer.invoke('get-data', category),
     updateData: () => ipcRenderer.invoke('update-data'),
     getFixtures: (leagueId, matchday) => ipcRenderer.invoke('get-fixtures', { leagueId, matchday }),

@@ -293,7 +293,7 @@ export default function Home() {
                                                 <span className="px-2.5 py-1 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-wider rounded-full">
                                                     {heroArticle.leagueIcon} {heroArticle.leagueName}
                                                 </span>
-                                                <span className="text-slate-400 text-xs flex items-center gap-1">
+                                                <span className="text-slate-400 text-xs flex items-center gap-1" suppressHydrationWarning>
                                                     <Clock size={10} /> {timeAgo(heroArticle.published)}
                                                 </span>
                                             </div>
@@ -349,7 +349,7 @@ export default function Home() {
                                         </h3>
                                         <p className="text-xs text-slate-500 line-clamp-2 flex-1">{article.description}</p>
                                         <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
-                                            <span className="text-[10px] text-slate-600 flex items-center gap-1">
+                                            <span className="text-[10px] text-slate-600 flex items-center gap-1" suppressHydrationWarning>
                                                 <Clock size={10} /> {timeAgo(article.published)}
                                             </span>
                                             {article.links && (

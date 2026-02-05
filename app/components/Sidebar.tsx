@@ -62,10 +62,16 @@ export function Sidebar() {
             </nav>
 
             <div className="mt-auto border-t border-white/5 pt-4">
-                <button className="flex items-center gap-4 px-3 py-3 rounded-xl text-slate-400 hover:bg-white/5 hover:text-white w-full transition-all">
-                    <Settings size={22} />
+                <a
+                    href="/settings"
+                    className={`flex items-center gap-4 px-3 py-3 rounded-xl transition-all duration-300 group ${isActive('/settings')
+                        ? 'bg-gradient-to-r from-emerald-500/10 to-transparent border-l-2 border-emerald-400 text-emerald-400'
+                        : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                        }`}
+                >
+                    <Settings size={22} className={isActive('/settings') ? 'text-emerald-400' : 'text-slate-500 group-hover:text-white'} />
                     <span className="font-medium hidden md:block">Settings</span>
-                </button>
+                </a>
             </div>
         </div>
     );

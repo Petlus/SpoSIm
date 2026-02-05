@@ -196,6 +196,12 @@ export interface EspnRosterPlayer {
 
 export interface ElectronAPI {
     getAppVersion: () => Promise<string>;
+    checkForUpdates: () => Promise<{ available?: boolean; version?: string; message?: string; error?: string }>;
+    search: (query: string) => Promise<{
+        leagues: Array<{ id: number; name: string }>;
+        teams: Array<{ id: number; name: string; shortName?: string; leagueId?: number; leagueName?: string }>;
+        players: Array<{ id: number; name: string; goals?: number; teamId?: number; teamName?: string }>;
+    }>;
     getData: (category: 'football' | 'f1') => Promise<unknown>;
     updateData: () => Promise<{ success: boolean; error?: string }>;
     getFixtures: (leagueId: number, matchday?: number) => Promise<{

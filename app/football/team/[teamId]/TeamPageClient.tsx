@@ -311,8 +311,8 @@ export default function TeamPageClient() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                    {team.players?.length > 0 ? team.players.map((p: any) => (
-                        <div key={p.id || Math.random()} className="group relative perspective-1000">
+                    {team.players?.length > 0 ? team.players.map((p: any, idx: number) => (
+                        <div key={p.id ?? `player-${idx}-${p.name}`} className="group relative perspective-1000">
                             {/* Card Container */}
                             <div className="relative bg-slate-800/80 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden hover:-translate-y-2 hover:shadow-2xl hover:shadow-black/50 transition-all duration-300">
                                 

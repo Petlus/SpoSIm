@@ -43,6 +43,7 @@ function createSplash() {
         webPreferences: {
             contextIsolation: true,
             preload: path.join(__dirname, 'splash-preload.js'),
+            webSecurity: false, // Allow loading local file:// assets (logo, video)
         },
         show: false,
     });
@@ -170,6 +171,42 @@ async function runStartupChecks() {
 
 // ── App Ready ──
 app.whenReady().then(async () => {
+    // Register check-for-updates handler (must be in whenReady for packaged app)
+    ipcMain.handle('check-for-updates', async () => {
+        if (!app.isPackaged) return { available: false, message: 'Updates only in packaged app' };
+        try {
+            const result = await autoUpdater.checkForUpdates();
+            const update = result?.updateInfo;
+            if (update) {
+                return { available: true, version: update.version, message: `Update ${update.version} available` };
+            }
+            return { available: false, message: 'No update available' };
+        } catch (e) {
+            return { available: false, error: e?.message || String(e), message: 'Check failed' };
+        }
+    });
+
+    // Register splash-asset:// for logo and video (works in dev + prod)
+    const { protocol } = require('electron');
+    const assetDirs = [
+        path.join(__dirname, '..', 'public'),
+        path.join(__dirname, '..', 'out'),
+    ];
+    protocol.handle('splash-asset', (request) => {
+        const url = new URL(request.url);
+        const filename = decodeURIComponent(url.pathname.replace(/^\//, ''));
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+            return new Response('Invalid', { status: 400 });
+        }
+        for (const dir of assetDirs) {
+            const fullPath = path.join(dir, filename);
+            if (fs.existsSync(fullPath)) {
+                return net.fetch(pathToFileURL(fullPath).toString());
+            }
+        }
+        return new Response('Not found', { status: 404 });
+    });
+
     // Register app:// protocol for production
     if (!isDev) {
         const outDir = path.join(__dirname, '../out');
@@ -190,8 +227,15 @@ app.whenReady().then(async () => {
         });
     }
 
-    // 1. Show splash immediately
+    // 1. Show splash and wait for it to be ready (so progress events are received)
     createSplash();
+    await new Promise((resolve) => {
+        if (splashWindow?.webContents) {
+            splashWindow.webContents.once('did-finish-load', resolve);
+        } else {
+            resolve();
+        }
+    });
 
     // 2. Init DB
     await require('./db').initDb();
@@ -204,14 +248,38 @@ app.whenReady().then(async () => {
 
     // Auto-update (production only)
     if (app.isPackaged) {
-        autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+        autoUpdater.autoDownload = true;
+        autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+            console.error('[AutoUpdate] Check failed:', err?.message || err);
+        });
         autoUpdater.on('update-available', () => {
-            if (mainWindow) mainWindow.webContents.send('update-available');
+            sendUpdateToRenderer('update-available');
+        });
+        autoUpdater.on('download-progress', (progress) => {
+            sendUpdateToRenderer('update-download-progress', {
+                percent: Math.round(progress.percent || 0),
+                bytesPerSecond: progress.bytesPerSecond,
+                transferred: progress.transferred,
+                total: progress.total,
+            });
         });
         autoUpdater.on('update-downloaded', () => {
-            if (mainWindow) mainWindow.webContents.send('update-downloaded');
-            autoUpdater.quitAndInstall(false, true);
+            sendUpdateToRenderer('update-downloaded');
+            // Short delay so user sees "Restarting..." before app quits
+            setTimeout(() => {
+                autoUpdater.quitAndInstall(false, true);
+            }, 2000);
         });
+        autoUpdater.on('error', (err) => {
+            console.error('[AutoUpdate] Error:', err?.message || err);
+            sendUpdateToRenderer('update-error', { message: err?.message || String(err) });
+        });
+    }
+
+    function sendUpdateToRenderer(channel, data) {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+            mainWindow.webContents.send(channel, data);
+        }
     }
 
     app.on('activate', () => {
@@ -520,6 +588,44 @@ async function seedDatabase() {
 // --- IPC HANDLERS ---
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+ipcMain.handle('search', async (event, { query }) => {
+    try {
+        const q = String(query || '').trim();
+        if (q.length < 2) return { leagues: [], teams: [], players: [] };
+
+        const leagues = await prisma.league.findMany({
+            where: { sport: 'football', name: { contains: q } },
+            take: 5,
+            select: { id: true, name: true }
+        });
+        const teams = await prisma.team.findMany({
+            where: {
+                OR: [
+                    { name: { contains: q } },
+                    { shortName: { contains: q } }
+                ]
+            },
+            include: { league: { select: { id: true, name: true } } },
+            take: 10
+        });
+        const players = await prisma.player.findMany({
+            where: { name: { contains: q } },
+            include: { team: { select: { id: true, name: true } } },
+            orderBy: { goals: 'desc' },
+            take: 10
+        });
+
+        return {
+            leagues: leagues.map(l => ({ id: l.id, name: l.name })),
+            teams: teams.map(t => ({ id: t.id, name: t.name, shortName: t.shortName, leagueId: t.leagueId, leagueName: t.league?.name })),
+            players: players.map(p => ({ id: p.id, name: p.name, goals: p.goals, teamId: p.teamId, teamName: p.team?.name }))
+        };
+    } catch (e) {
+        console.error('Search error:', e);
+        return { leagues: [], teams: [], players: [] };
+    }
+});
+
 ipcMain.handle('get-data', async (event, category) => {
     try {
         if (category === 'football') {
@@ -556,10 +662,25 @@ ipcMain.handle('get-data', async (event, category) => {
                         }
                     }));
 
+                // Top scorers from DB (ESPN-synced goals/assists)
+                const teamIds = mappedTeams.map(t => t.id);
+                const topScorers = await prisma.player.findMany({
+                    where: { teamId: { in: teamIds }, goals: { gt: 0 } },
+                    include: { team: { select: { name: true } } },
+                    orderBy: [{ goals: 'desc' }, { assists: 'desc' }],
+                    take: 10
+                });
+
                 result.leagues.push({
                     ...l,
                     id: Number(l.id),
-                    teams: mappedTeams
+                    teams: mappedTeams,
+                    topScorers: topScorers.map(p => ({
+                        name: p.name,
+                        goals: p.goals,
+                        assists: p.assists,
+                        teamName: p.team?.name ?? '—'
+                    }))
                 });
             }
             return result;

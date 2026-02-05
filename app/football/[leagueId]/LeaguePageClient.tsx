@@ -174,6 +174,7 @@ export default function LeaguePageClient() {
                 away: fix.away ?? { id: 0, name: 'TBD', short_name: 'TBD', logo: null },
                 matchday: fix.matchday,
                 date: fix.date ? new Date(fix.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'TBD',
+                dateRaw: fix.date,
                 odds: null,
                 loadingOdds: false
             }));
@@ -278,9 +279,9 @@ export default function LeaguePageClient() {
     const group = activeGroup ?? uniqueGroups[0] ?? 'League';
     const filteredTeams = data.teams.filter((t: any) => (t.group || 'League') === group);
 
-    // Dashboard Hero Widget
-    const HeroMatchCard = ({ fixture }: { fixture: any }) => {
-        if (!fixture) return (
+    // Dashboard: All matches for current matchday
+    const MatchdayMatchesWidget = () => {
+        if (!fixtures || fixtures.length === 0) return (
             <div className="col-span-1 md:col-span-2 lg:col-span-2 row-span-2 glass-card p-8 flex flex-col items-center justify-center text-center relative overflow-hidden group">
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/20 to-transparent"></div>
                 <Calendar size={48} className="text-slate-600 mb-4 group-hover:scale-110 transition-transform duration-500" />
@@ -290,51 +291,35 @@ export default function LeaguePageClient() {
         );
 
         return (
-            <div className="col-span-1 md:col-span-2 lg:col-span-2 row-span-2 glass-card p-0 relative overflow-hidden group border-t border-white/10">
-                {/* Background Image / Gradient */}
-                <div className="absolute inset-0 bg-[url('/stadium.jpg')] bg-cover bg-center opacity-20 transition-transform duration-1000 group-hover:scale-105"></div>
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-900/80 to-slate-950"></div>
-                
-                {/* Content */}
-                <div className="relative z-10 h-full flex flex-col p-6 md:p-8">
-                    <div className="flex items-center justify-between mb-8">
+            <div className="col-span-1 md:col-span-2 lg:col-span-2 row-span-2 glass-card p-0 relative overflow-hidden flex flex-col border-t border-white/10">
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/30 via-transparent to-slate-900/50"></div>
+                <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
+                    <div className="p-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
                         <span className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/20 flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Next Match
+                            Matchday {currentMatchday}
                         </span>
-                        <span className="text-slate-400 text-sm font-mono">{fixture.date}</span>
+                        <span className="text-slate-500 text-xs">{fixtures.length} matches</span>
                     </div>
-
-                    <div className="flex-1 flex items-center justify-between gap-4">
-                        {/* Home Team */}
-                        <div className="flex flex-col items-center gap-4 flex-1">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-slate-800/50 rounded-full flex items-center justify-center p-4 border border-white/10 shadow-2xl backdrop-blur-sm group-hover:border-white/20 transition-all">
-                                {fixture.home.logo ? <img src={fixture.home.logo} className="w-full h-full object-contain" alt="" /> : <div className="text-2xl">🏠</div>}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        {fixtures.map((fix: any, idx: number) => (
+                            <div key={idx} className="glass-card p-4 flex items-center gap-4 hover:border-emerald-500/20 transition-colors group/card">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    {fix.home.logo ? <img src={fix.home.logo} className="w-8 h-8 object-contain flex-shrink-0" alt="" /> : <div className="w-8 h-8 rounded bg-slate-700 flex items-center justify-center text-xs">🏠</div>}
+                                    <span className="text-sm font-bold text-white truncate">{fix.home.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-slate-500 text-xs font-mono hidden sm:inline">{fix.date}</span>
+                                    <button onClick={() => openInsights(fix.home, fix.away)} className="px-3 py-1.5 bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5">
+                                        <BrainCircuit size={12} /> Analyze
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
+                                    <span className="text-sm font-bold text-white truncate text-right">{fix.away.name}</span>
+                                    {fix.away.logo ? <img src={fix.away.logo} className="w-8 h-8 object-contain flex-shrink-0" alt="" /> : <div className="w-8 h-8 rounded bg-slate-700 flex items-center justify-center text-xs">✈️</div>}
+                                </div>
                             </div>
-                            <div className="text-center">
-                                <h3 className="text-xl md:text-2xl font-black text-white tracking-tight leading-none mb-1">{fixture.home.name}</h3>
-                                <span className="text-xs text-slate-500 font-mono uppercase">Home</span>
-                            </div>
-                        </div>
-
-                        {/* VS */}
-                        <div className="flex flex-col items-center gap-2">
-                            <div className="text-2xl md:text-4xl font-black text-slate-700 italic">VS</div>
-                            <button onClick={() => openInsights(fixture.home, fixture.away)} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-full shadow-lg shadow-purple-900/50 transition-all flex items-center gap-2">
-                                <BrainCircuit size={14} /> Analyze
-                            </button>
-                        </div>
-
-                        {/* Away Team */}
-                        <div className="flex flex-col items-center gap-4 flex-1">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-slate-800/50 rounded-full flex items-center justify-center p-4 border border-white/10 shadow-2xl backdrop-blur-sm group-hover:border-white/20 transition-all">
-                                {fixture.away.logo ? <img src={fixture.away.logo} className="w-full h-full object-contain" alt="" /> : <div className="text-2xl">✈️</div>}
-                            </div>
-                            <div className="text-center">
-                                <h3 className="text-xl md:text-2xl font-black text-white tracking-tight leading-none mb-1">{fixture.away.name}</h3>
-                                <span className="text-xs text-slate-500 font-mono uppercase">Away</span>
-                            </div>
-                        </div>
+                        ))}
                     </div>
                 </div>
             </div>
@@ -377,8 +362,8 @@ export default function LeaguePageClient() {
             {activeTab === 'dashboard' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     
-                    {/* 1. Hero Match Card (Top Left - Big) */}
-                    <HeroMatchCard fixture={fixtures[0]} />
+                    {/* 1. Matchday Matches (Top Left - All matches) */}
+                    <MatchdayMatchesWidget />
 
                     {/* 2. AI Status Widget (Top Right) */}
                     <div className="col-span-1 glass-card p-6 flex flex-col justify-between relative overflow-hidden group hover:border-purple-500/30 transition-colors">
@@ -416,24 +401,26 @@ export default function LeaguePageClient() {
                                 <Target size={14} className="text-amber-400" /> Golden Boot
                             </h3>
                         </div>
-                        {/* Placeholder for top scorers - in real app would come from DB */}
                         <div className="space-y-3">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs">1</div>
-                                <div className="flex-1">
-                                    <div className="text-sm font-bold text-white">Harry Kane</div>
-                                    <div className="text-xs text-slate-500">Bayern München</div>
-                                </div>
-                                <div className="text-amber-400 font-mono font-bold">24</div>
-                            </div>
-                            <div className="flex items-center gap-3 opacity-75">
-                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs">2</div>
-                                <div className="flex-1">
-                                    <div className="text-sm font-bold text-white">Guirassy</div>
-                                    <div className="text-xs text-slate-500">Dortmund</div>
-                                </div>
-                                <div className="text-amber-400 font-mono font-bold">18</div>
-                            </div>
+                            {(data.topScorers?.length ?? 0) > 0 ? (
+                                data.topScorers.slice(0, 5).map((s: { name: string; goals: number; assists?: number; teamName: string }, i: number) => (
+                                    <div key={s.name + i} className={`flex items-center gap-3 ${i >= 2 ? 'opacity-75' : ''}`}>
+                                        <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs">{i + 1}</div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-bold text-white truncate">{s.name}</div>
+                                            <div className="text-xs text-slate-500 truncate">{s.teamName}</div>
+                                        </div>
+                                        <div className="flex items-center gap-3 flex-shrink-0">
+                                            <span className="text-amber-400 font-mono font-bold">{s.goals}</span>
+                                            {s.assists != null && s.assists > 0 && (
+                                                <span className="text-slate-500 text-xs">({s.assists}A)</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-slate-500">No scorer data yet. Run ESPN sync to fetch.</p>
+                            )}
                         </div>
                     </div>
 
@@ -729,80 +716,105 @@ export default function LeaguePageClient() {
                                 </div>
                             )}
 
-                            {/* Scheduled Matches (with Predict buttons) */}
-                            {espnScores.filter(s => s.statusState === 'pre').length > 0 && (
-                                <div>
-                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Clock size={14} /> Upcoming
-                                    </h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {espnScores.filter(s => s.statusState === 'pre').map((score, si) => {
-                                            const homeInternalId = score.home.internalId;
-                                            const awayInternalId = score.away.internalId;
-                                            // Find fixture index in sim fixtures for prediction (by matching internal IDs)
-                                            const simFixIdx = fixtures.findIndex(f => f.home.id === homeInternalId && f.away.id === awayInternalId);
-                                            const simFix = simFixIdx >= 0 ? fixtures[simFixIdx] : null;
-                                            return (
-                                                <div key={score.id} className="glass-card p-4">
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <span className="text-[10px] text-slate-500 font-mono">
-                                                            {new Date(score.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-500 font-mono">
-                                                            {new Date(score.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between mb-3">
-                                                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                            {score.home.logo && <img src={score.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
-                                                            <span className="text-sm font-bold text-white truncate">{score.home.name}</span>
+                            {/* Scheduled Matches: ESPN + Sim fixtures merged for full matchday */}
+                            {(() => {
+                                const espnPre = espnScores.filter(s => s.statusState === 'pre');
+                                const espnIds = new Set(espnPre.map(s => `${s.home.internalId ?? ''}-${s.away.internalId ?? ''}`));
+                                const simOnly = fixtures.filter(f => f.home?.id && f.away?.id && !espnIds.has(`${f.home.id}-${f.away.id}`));
+                                const upcomingMerged = [
+                                    ...espnPre.map(s => ({
+                                        id: s.id,
+                                        dateRaw: new Date(s.date),
+                                        home: s.home,
+                                        away: s.away,
+                                        venue: s.venue,
+                                        homeInternalId: s.home.internalId,
+                                        awayInternalId: s.away.internalId,
+                                        simFixIdx: fixtures.findIndex(f => f.home.id === s.home.internalId && f.away.id === s.away.internalId)
+                                    })),
+                                    ...simOnly.map((f) => ({
+                                        id: `sim-${f.home.id}-${f.away.id}`,
+                                        dateRaw: f.dateRaw ? new Date(f.dateRaw) : null,
+                                        home: f.home,
+                                        away: f.away,
+                                        venue: undefined,
+                                        homeInternalId: f.home.id,
+                                        awayInternalId: f.away.id,
+                                        simFixIdx: fixtures.findIndex(x => x.home.id === f.home.id && x.away.id === f.away.id)
+                                    }))
+                                ];
+                                upcomingMerged.sort((a, b) => (a.dateRaw?.getTime() ?? 0) - (b.dateRaw?.getTime() ?? 0));
+                                if (upcomingMerged.length === 0) return null;
+                                return (
+                                    <div>
+                                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                            <Clock size={14} /> Upcoming
+                                        </h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {upcomingMerged.map((m) => {
+                                                const homeInternalId = m.homeInternalId ?? m.home?.internalId ?? m.home?.id;
+                                                const awayInternalId = m.awayInternalId ?? m.away?.internalId ?? m.away?.id;
+                                                const simFix = m.simFixIdx >= 0 ? fixtures[m.simFixIdx] : null;
+                                                return (
+                                                    <div key={m.id} className="glass-card p-4">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <span className="text-[10px] text-slate-500 font-mono">
+                                                                {m.dateRaw ? m.dateRaw.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }) : 'TBD'}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-500 font-mono">
+                                                                {m.dateRaw ? m.dateRaw.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : ''}
+                                                            </span>
                                                         </div>
-                                                        <span className="text-slate-600 text-xs mx-3 flex-shrink-0">vs</span>
-                                                        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-                                                            <span className="text-sm font-bold text-white truncate">{score.away.name}</span>
-                                                            {score.away.logo && <img src={score.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                {m.home.logo && <img src={m.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                                <span className="text-sm font-bold text-white truncate">{m.home.name}</span>
+                                                            </div>
+                                                            <span className="text-slate-600 text-xs mx-3 flex-shrink-0">vs</span>
+                                                            <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                                <span className="text-sm font-bold text-white truncate">{m.away.name}</span>
+                                                                {m.away.logo && <img src={m.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    {score.venue && <div className="mb-3 text-[10px] text-slate-600 truncate">{score.venue}</div>}
-                                                    {/* Sim Prediction Integrated */}
-                                                    {simFix?.odds ? (
-                                                        <div>
-                                                            <div className="flex justify-between text-xs mb-1.5 font-mono">
-                                                                <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {simFix.odds.homeWinProb}%</span>
-                                                                <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {simFix.odds.drawProb}%</span>
-                                                                <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {simFix.odds.awayWinProb}%</span>
+                                                        {m.venue && <div className="mb-3 text-[10px] text-slate-600 truncate">{m.venue}</div>}
+                                                        {simFix?.odds ? (
+                                                            <div>
+                                                                <div className="flex justify-between text-xs mb-1.5 font-mono">
+                                                                    <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {simFix.odds.homeWinProb}%</span>
+                                                                    <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {simFix.odds.drawProb}%</span>
+                                                                    <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {simFix.odds.awayWinProb}%</span>
+                                                                </div>
+                                                                <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                                    <div className="bg-emerald-500" style={{ width: `${simFix.odds.homeWinProb}%` }}></div>
+                                                                    <div className="bg-slate-500" style={{ width: `${simFix.odds.drawProb}%` }}></div>
+                                                                    <div className="bg-rose-500" style={{ width: `${simFix.odds.awayWinProb}%` }}></div>
+                                                                </div>
+                                                                <button onClick={() => openInsights({ id: homeInternalId, name: m.home.name }, { id: awayInternalId, name: m.away.name })} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                                    <BarChart3 size={12} /> View Insights
+                                                                </button>
                                                             </div>
-                                                            <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
-                                                                <div className="bg-emerald-500" style={{ width: `${simFix.odds.homeWinProb}%` }}></div>
-                                                                <div className="bg-slate-500" style={{ width: `${simFix.odds.drawProb}%` }}></div>
-                                                                <div className="bg-rose-500" style={{ width: `${simFix.odds.awayWinProb}%` }}></div>
-                                                            </div>
-                                                            <button onClick={() => openInsights({ id: homeInternalId, name: score.home.name }, { id: awayInternalId, name: score.away.name })} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
-                                                                <BarChart3 size={12} /> View Insights
+                                                        ) : homeInternalId && awayInternalId ? (
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (m.simFixIdx >= 0) {
+                                                                        predictMatch(m.simFixIdx!, homeInternalId, awayInternalId);
+                                                                    } else {
+                                                                        openInsights({ id: homeInternalId, name: m.home.name }, { id: awayInternalId, name: m.away.name });
+                                                                    }
+                                                                }}
+                                                                className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all"
+                                                            >
+                                                                <Activity size={14} className="text-purple-400" />
+                                                                {m.simFixIdx >= 0 ? 'Simulate Prediction (1000 Runs)' : 'View Insights'}
                                                             </button>
-                                                        </div>
-                                                    ) : homeInternalId && awayInternalId ? (
-                                                        <button
-                                                            onClick={() => {
-                                                                if (simFixIdx >= 0) {
-                                                                    predictMatch(simFixIdx, homeInternalId, awayInternalId);
-                                                                } else {
-                                                                    // Direct prediction for ESPN-only matches
-                                                                    openInsights({ id: homeInternalId, name: score.home.name }, { id: awayInternalId, name: score.away.name });
-                                                                }
-                                                            }}
-                                                            className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all"
-                                                        >
-                                                            <Activity size={14} className="text-purple-400" />
-                                                            {simFixIdx >= 0 ? 'Simulate Prediction (1000 Runs)' : 'View Insights'}
-                                                        </button>
-                                                    ) : null}
-                                                </div>
-                                            );
-                                        })}
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
 
                             {/* Completed Matches */}
                             {espnScores.filter(s => s.isCompleted).length > 0 && (
