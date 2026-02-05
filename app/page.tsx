@@ -1,46 +1,9 @@
 'use client';
 
 import React from 'react';
-import { StartupScreen } from './components/StartupScreen';
 import { CURRENT_SEASON_STR } from '../config/season';
 
 export default function Home() {
-    const [setupStatus, setSetupStatus] = React.useState<'idle' | 'running' | 'complete' | 'error'>('idle');
-    const [progress, setProgress] = React.useState({ step: '', progress: 0, detail: '' });
-    const [inElectron, setInElectron] = React.useState(false);
-
-    const showStartup = setupStatus === 'running' || (setupStatus === 'idle' && inElectron);
-
-    React.useEffect(() => {
-        const electron = typeof window !== 'undefined' ? window.electron : undefined;
-        if (electron) {
-            setInElectron(true);
-            let unsubscribe: (() => void) | undefined;
-            // Check persistence first
-            electron.getSetupStatus().then(settings => {
-                if (settings && settings.setupComplete) {
-                    setSetupStatus('complete');
-                } else {
-                    // Start Setup logic
-                    unsubscribe = electron.on('ai-setup-progress', (_event, data) => {
-                        const d = data as { step?: string; progress?: number; detail?: string };
-                        setProgress({ step: d.step ?? '', progress: d.progress ?? 0, detail: d.detail ?? '' });
-                        if (d.step === 'done') setSetupStatus('complete');
-                    });
-
-                    setSetupStatus('running');
-                    electron.startAiSetup().then(res => {
-                        if (!res.success) setSetupStatus('error');
-                    });
-                }
-            });
-            return () => {
-                unsubscribe?.();
-            };
-        }
-    }, []);
-
-    // ... existing render ...
     return (
         <div className="min-h-screen p-8 bg-slate-950 text-white">
             <header className="mb-12 flex justify-between items-center">
@@ -51,22 +14,11 @@ export default function Home() {
                     <p className="text-slate-400 mt-2 text-lg">Season {CURRENT_SEASON_STR} Simulation Engine</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    {setupStatus === 'running' && (
-                        <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs font-mono text-emerald-400 animate-pulse">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            AI Setup Active
-                        </div>
-                    )}
                     <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-full text-xs font-mono text-slate-400">
                         v0.1.0-alpha
                     </div>
                 </div>
             </header>
-
-            {/* Startup Screen Overlay - show while checking or running setup (Electron only) */}
-            {showStartup && (
-                <StartupScreen status="running" progress={progress} />
-            )}
 
             <main className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
                 {/* Football Card */}
@@ -105,7 +57,6 @@ export default function Home() {
 
                 {/* F1 Card - Coming Soon */}
                 <div className="group relative p-8 rounded-3xl bg-slate-900 border border-white/5 overflow-hidden grayscale opacity-70 cursor-not-allowed">
-                    {/* Locked Overlay */}
                     <div className="absolute inset-0 bg-slate-900/60 z-20 flex items-center justify-center">
                         <span className="px-4 py-2 bg-slate-800 border border-slate-600 rounded-full text-sm font-bold text-slate-400 uppercase tracking-wider">
                             Coming Soon
@@ -141,7 +92,6 @@ export default function Home() {
                         </div>
                     </div>
                 </div>
-
             </main>
         </div>
     );

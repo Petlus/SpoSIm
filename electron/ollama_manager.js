@@ -9,37 +9,50 @@ class OllamaManager {
     constructor() {
         this.port = 11434;
         this.baseUrl = `http://localhost:${this.port}`;
+        this._resolvedExe = null; // cached resolved path
     }
 
     /**
-     * Check if Ollama CLI is installed/accessible in PATH or default Windows location
-     * @returns {Promise<boolean>}
+     * Resolve the full path to the Ollama executable.
+     * Checks PATH first, then default Windows install location.
+     * @returns {Promise<string|null>} Full path or 'ollama' if in PATH, null if not found
      */
-    async checkInstalled() {
-        // 1. Try Global PATH via exec
-        const checkGlobal = new Promise((resolve) => {
-            exec('ollama --version', { timeout: 2000 }, (error) => {
-                if (error) resolve(false);
-                else resolve(true);
+    async resolveExe() {
+        if (this._resolvedExe) return this._resolvedExe;
+
+        // 1. Try global PATH
+        const inPath = await new Promise((resolve) => {
+            exec('ollama --version', { timeout: 3000 }, (error) => {
+                resolve(!error);
             });
         });
+        if (inPath) {
+            this._resolvedExe = 'ollama';
+            return this._resolvedExe;
+        }
 
-        if (await checkGlobal) return true;
-
-        // 2. Check Default Windows Install Path
-        // usually C:\Users\<User>\AppData\Local\Programs\Ollama\ollama.exe
+        // 2. Check default Windows install path
         if (process.platform === 'win32') {
             const localAppData = process.env.LOCALAPPDATA;
             if (localAppData) {
                 const defaultPath = path.join(localAppData, 'Programs', 'Ollama', 'ollama.exe');
                 if (fs.existsSync(defaultPath)) {
                     console.log("Found Ollama at default path:", defaultPath);
-                    return true;
+                    this._resolvedExe = defaultPath;
+                    return this._resolvedExe;
                 }
             }
         }
 
-        return false;
+        return null;
+    }
+
+    /**
+     * Check if Ollama CLI is installed/accessible
+     * @returns {Promise<boolean>}
+     */
+    async checkInstalled() {
+        return (await this.resolveExe()) !== null;
     }
 
     /**
@@ -62,12 +75,10 @@ class OllamaManager {
     async startService() {
         console.log("Starting Ollama Service...");
 
-        // Find executable (re-use logic or just rely on PATH if checked)
-        let exe = 'ollama';
-        if (process.platform === 'win32') {
-            const localAppData = process.env.LOCALAPPDATA;
-            const defaultPath = path.join(localAppData, 'Programs', 'Ollama', 'ollama.exe');
-            if (fs.existsSync(defaultPath)) exe = defaultPath;
+        const exe = await this.resolveExe();
+        if (!exe) {
+            console.error("Ollama executable not found.");
+            return false;
         }
 
         try {
@@ -106,22 +117,24 @@ class OllamaManager {
      * @returns {Promise<string[]>}
      */
     async getAvailableModels() {
-        return new Promise((resolve) => {
-            // Find executable logic (reused from startService if needed, but 'ollama' usually work if in PATH/shimmed)
-            // Or use the full path checking logic if needed
-            let cmd = 'ollama list';
+        const exe = await this.resolveExe();
+        if (!exe) {
+            console.warn("Cannot list models – Ollama not found.");
+            return [];
+        }
 
-            exec(cmd, { timeout: 3000 }, (error, stdout, stderr) => {
+        const cmd = exe === 'ollama' ? 'ollama list' : `"${exe}" list`;
+
+        return new Promise((resolve) => {
+            exec(cmd, { timeout: 5000 }, (error, stdout) => {
                 if (error) {
                     console.warn("Failed to list models:", error.message);
                     resolve([]);
                     return;
                 }
-                // Parse stdout: "NAME ID SIZE MODIFIED"
-                // Skip header line
+                // Parse stdout: "NAME ID SIZE MODIFIED" – skip header line
                 const lines = stdout.trim().split('\n').slice(1);
                 const models = lines.map(line => line.split(/\s+/)[0]).filter(Boolean);
-                // Clean tags (e.g. 'llama3:latest' -> 'llama3') if desired, but full tag is better for pulling
                 resolve(models);
             });
         });
@@ -148,15 +161,13 @@ class OllamaManager {
 
         console.log(`Model ${modelName} missing. Pulling... (This may take a while)`);
 
-        return new Promise((resolve) => {
-            // Find executable
-            let exe = 'ollama';
-            if (process.platform === 'win32') {
-                const localAppData = process.env.LOCALAPPDATA;
-                const defaultPath = path.join(localAppData, 'Programs', 'Ollama', 'ollama.exe');
-                if (fs.existsSync(defaultPath)) exe = defaultPath;
-            }
+        const exe = await this.resolveExe();
+        if (!exe) {
+            console.error("Cannot pull model – Ollama not found.");
+            return false;
+        }
 
+        return new Promise((resolve) => {
             const p = spawn(exe, ['pull', modelName], { shell: true });
 
             p.stdout.on('data', (data) => console.log(`[Ollama Pull] ${data}`));
@@ -227,6 +238,7 @@ class OllamaManager {
                         resolve(false);
                     } else {
                         console.log("Ollama installed successfully.");
+                        this._resolvedExe = null; // clear cache so resolveExe() re-detects
                         resolve(true);
                     }
                 });
@@ -245,6 +257,14 @@ class OllamaManager {
      * @returns {Promise<boolean>}
      */
     async pullModelProgressive(modelName, onProgress) {
+        // Ensure Ollama service is reachable before attempting pull
+        const running = await this.checkRunning();
+        if (!running) {
+            console.error("Ollama service not running – cannot pull model.");
+            onProgress(0, "Ollama service not reachable");
+            return false;
+        }
+
         try {
             console.log(`Pulling ${modelName} with progress tracking...`);
 
@@ -252,21 +272,30 @@ class OllamaManager {
                 method: 'post',
                 url: `${this.baseUrl}/api/pull`,
                 data: { name: modelName, stream: true },
-                responseType: 'stream'
+                responseType: 'stream',
+                timeout: 0, // no timeout for large downloads
             });
 
+            let buffer = '';
+
             response.data.on('data', (chunk) => {
-                const lines = chunk.toString().split('\n').filter(Boolean);
+                buffer += chunk.toString();
+                // Split on newlines, keep last incomplete line in buffer
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
                 for (const line of lines) {
+                    if (!line.trim()) continue;
                     try {
                         const json = JSON.parse(line);
                         if (json.status === 'success') {
                             onProgress(100, "Completed");
                         } else if (json.completed && json.total) {
-                            const percent = Math.round((json.completed / json.total) * 100);
-                            onProgress(percent, json.status);
+                            const percent = Math.min(99, Math.round((json.completed / json.total) * 100));
+                            onProgress(percent, json.status || 'Downloading...');
                         } else {
-                            onProgress(-1, json.status);
+                            // Status-only messages (e.g. "pulling manifest") – keep progress moving
+                            onProgress(0, json.status || 'Preparing...');
                         }
                     } catch (e) {
                         // ignore parse errors for partial chunks
@@ -276,11 +305,15 @@ class OllamaManager {
 
             return new Promise((resolve) => {
                 response.data.on('end', () => resolve(true));
-                response.data.on('error', () => resolve(false));
+                response.data.on('error', (err) => {
+                    console.error("Stream error during pull:", err.message);
+                    resolve(false);
+                });
             });
 
         } catch (e) {
             console.error("Progressive pull failed:", e.message);
+            onProgress(0, `Pull failed: ${e.message}`);
             return false;
         }
     }

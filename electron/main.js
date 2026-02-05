@@ -25,8 +25,38 @@ const { CURRENT_SEASON_STR } = require('../config/season');
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
 let mainWindow;
+let splashWindow;
 
-function createWindow() {
+// ── Splash Window ──
+function createSplash() {
+    const iconPath = path.join(__dirname, '../public/logo.png');
+    splashWindow = new BrowserWindow({
+        width: 480,
+        height: 520,
+        frame: false,
+        resizable: false,
+        transparent: false,
+        icon: iconPath,
+        backgroundColor: '#020617',
+        webPreferences: {
+            contextIsolation: true,
+            preload: path.join(__dirname, 'splash-preload.js'),
+        },
+        show: false,
+    });
+    splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+    splashWindow.once('ready-to-show', () => splashWindow.show());
+}
+
+// Helper: send progress to splash window
+function sendSplash(step, progress, detail) {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.webContents.send('startup-progress', { step, progress, detail });
+    }
+}
+
+// ── Main Window ──
+function createMainWindow() {
     const iconPath = path.join(__dirname, '../public/logo.png');
     mainWindow = new BrowserWindow({
         width: 1400,
@@ -40,6 +70,7 @@ function createWindow() {
         title: "BetBrain",
         autoHideMenuBar: true,
         backgroundColor: '#0f172a',
+        show: false, // hidden until ready
     });
 
     const startUrl = isDev
@@ -48,10 +79,89 @@ function createWindow() {
 
     console.log(`Loading URL: ${startUrl}`);
     mainWindow.loadURL(startUrl);
+
+    // Show main window once loaded, close splash
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+        if (splashWindow && !splashWindow.isDestroyed()) {
+            splashWindow.close();
+            splashWindow = null;
+        }
+    });
 }
 
+// ── Startup Checks (runs in main process, sends progress to splash) ──
+async function runStartupChecks() {
+    // 1. Database
+    sendSplash('database', 0, 'Connecting to database...');
+    try {
+        await prisma.$queryRawUnsafe('SELECT 1');
+        sendSplash('database', 100, 'Database connected');
+    } catch (e) {
+        console.error('DB check failed:', e);
+        sendSplash('error', 0, 'Database connection failed');
+        return;
+    }
+
+    // 2. Season Data
+    sendSplash('season_data', 0, `Checking ${CURRENT_SEASON_STR} data...`);
+    try {
+        const count = await prisma.league.count({ where: { currentSeason: CURRENT_SEASON_STR } });
+        if (count === 0) {
+            sendSplash('season_data', 30, 'Seeding initial data...');
+            await seedDatabase();
+        }
+        sendSplash('season_data', 100, 'Season data ready');
+    } catch (e) {
+        console.error('Season data check failed:', e);
+        sendSplash('season_data', 100, 'Skipped (non-critical)');
+    }
+
+    // 3. Ollama installed
+    sendSplash('ollama_install', 0, 'Checking Ollama installation...');
+    let ollamaInstalled = await ollamaManager.checkInstalled();
+    if (!ollamaInstalled) {
+        sendSplash('ollama_install', 10, 'Downloading Ollama...');
+        const ok = await ollamaManager.downloadAndInstallOllama((p, s) => sendSplash('ollama_install', p, s));
+        if (!ok) { sendSplash('error', 0, 'Ollama installation failed'); return; }
+        ollamaInstalled = true;
+    }
+    sendSplash('ollama_install', 100, 'Ollama installed');
+
+    // 4. Ollama service running
+    sendSplash('ollama_service', 0, 'Starting Ollama service...');
+    const running = await ollamaManager.ensureOllamaRunning();
+    if (!running) { sendSplash('error', 0, 'Could not start Ollama'); return; }
+    sendSplash('ollama_service', 100, 'Service running');
+
+    // 5. AI Model
+    const modelName = 'deepseek-r1:1.5b';
+    sendSplash('ai_model', 0, `Checking model ${modelName}...`);
+    const models = await ollamaManager.getAvailableModels();
+    const exists = models.some(m => m === modelName || m.startsWith(modelName + ':'));
+    if (!exists) {
+        sendSplash('ai_model', 5, `Downloading ${modelName}...`);
+        const pulled = await ollamaManager.pullModelProgressive(modelName, (p, s) => sendSplash('ai_model', Math.max(5, p), s));
+        if (!pulled) { sendSplash('error', 0, 'Model download failed'); return; }
+    }
+    sendSplash('ai_model', 100, 'Model ready');
+
+    // Persist
+    try {
+        await prisma.appSettings.upsert({
+            where: { id: 1 },
+            update: { ollamaInstalled: true, modelDownloaded: true, setupComplete: true, lastUpdate: new Date() },
+            create: { id: 1, ollamaInstalled: true, modelDownloaded: true, setupComplete: true, lastUpdate: new Date() },
+        });
+    } catch (e) { console.warn('Could not persist setup status:', e); }
+
+    // Done
+    sendSplash('done', 100, 'All systems ready');
+}
+
+// ── App Ready ──
 app.whenReady().then(async () => {
-    // Register app:// protocol to serve static files (fixes file:// path resolution)
+    // Register app:// protocol for production
     if (!isDev) {
         const outDir = path.join(__dirname, '../out');
         protocol.handle('app', (request) => {
@@ -59,7 +169,6 @@ app.whenReady().then(async () => {
             let filePath = (url.pathname || '/').replace(/^\//, '') || 'index.html';
             const fullPath = path.join(outDir, filePath);
             let toServe;
-            // Prefer .html file (e.g. football.html) over directory (e.g. football/)
             if (fs.existsSync(fullPath + '.html')) {
                 toServe = fullPath + '.html';
             } else if (fs.existsSync(fullPath)) {
@@ -71,11 +180,20 @@ app.whenReady().then(async () => {
             return net.fetch(pathToFileURL(toServe).toString());
         });
     }
-    console.log('App Ready. Prisma Client initialized.');
-    await require('./db').initDb(); // Enable WAL
-    createWindow();
 
-    // Auto-update: only when packaged (production)
+    // 1. Show splash immediately
+    createSplash();
+
+    // 2. Init DB
+    await require('./db').initDb();
+
+    // 3. Run all startup checks (progress shown in splash)
+    await runStartupChecks();
+
+    // 4. Create main window (splash closes when main is ready)
+    createMainWindow();
+
+    // Auto-update (production only)
     if (app.isPackaged) {
         autoUpdater.checkForUpdatesAndNotify().catch(() => {});
         autoUpdater.on('update-available', () => {
@@ -87,48 +205,12 @@ app.whenReady().then(async () => {
         });
     }
 
-    // Initial Data Check & Seeding
-    try {
-        // Check for 25/26 data specifically
-        const seasonLeagueCount = await prisma.league.count({
-            where: { currentSeason: CURRENT_SEASON_STR }
-        });
-
-        if (seasonLeagueCount === 0) {
-            console.log("No 25/26 Season data found. Seeding from Constants...");
-            await seedDatabase();
-            console.log("Seeding complete. Reloading window...");
-            if (mainWindow) mainWindow.reload();
-        } else {
-            console.log("25/26 Season Data confirmed present.");
-        }
-    } catch (e) {
-        console.error("DB Check/Seed Failed:", e);
-    }
-
     app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
+        if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
     });
 
-    // Ensure AppSettings exists
-    try {
-        const settings = await prisma.appSettings.findFirst({ where: { id: 1 } });
-        if (!settings) {
-            console.log("Initializing AppSettings...");
-            await prisma.appSettings.create({
-                data: { id: 1, ollamaInstalled: false, modelDownloaded: false, setupComplete: false }
-            });
-        }
-    } catch (e) {
-        console.error("Failed to init AppSettings:", e);
-    }
-
-    // Start Daily Sync (Delayed to not block startup UI)
-    setTimeout(() => {
-        dailySync.syncIfNeeded(mainWindow);
-    }, 5000);
+    // Daily sync (delayed)
+    setTimeout(() => dailySync.syncIfNeeded(mainWindow), 5000);
 });
 
 app.on('window-all-closed', () => {
@@ -1291,67 +1373,6 @@ ipcMain.handle('get-setup-status', async () => {
         });
     }
     return settings;
-});
-
-ipcMain.handle('ai-setup-start', async (event) => {
-    try {
-        const win = BrowserWindow.getAllWindows()[0];
-        const sendProgress = (step, progress, detail) => {
-            if (win) win.webContents.send('ai-setup-progress', { step, progress, detail });
-        };
-
-        let settings = await prisma.appSettings.findFirst({ where: { id: 1 } });
-        if (!settings) {
-            settings = await prisma.appSettings.create({ data: { id: 1 } });
-        }
-
-        // 1. Check/Install Ollama
-        if (!settings.ollamaInstalled) {
-            sendProgress('install_ollama', 0, 'Checking Ollama installation...');
-            const installed = await ollamaManager.checkInstalled();
-
-            if (!installed) {
-                sendProgress('install_ollama', 10, 'Downloading Ollama Installer...');
-                const success = await ollamaManager.downloadAndInstallOllama((progress, status) => {
-                    sendProgress('install_ollama', progress, status);
-                });
-                if (!success) throw new Error("Ollama installation failed.");
-            }
-            await prisma.appSettings.update({ where: { id: 1 }, data: { ollamaInstalled: true } });
-        }
-        sendProgress('install_ollama', 100, 'Ollama Installed');
-
-        // 2. Start Service
-        sendProgress('start_service', 0, 'Starting Ollama Service...');
-        const running = await ollamaManager.ensureOllamaRunning();
-        if (!running) throw new Error("Could not start Ollama service.");
-        sendProgress('start_service', 100, 'Service Running');
-
-        // 3. Check/Pull Model
-        const modelName = 'deepseek-r1:1.5b';
-        if (!settings.modelDownloaded) {
-            sendProgress('pull_model', 0, `Checking model ${modelName}...`);
-
-            const models = await ollamaManager.getAvailableModels();
-            const modelExists = models.some(m => m === modelName || m.startsWith(modelName + ':')); // Use stricter check from ollama_manager
-
-            if (!modelExists) {
-                sendProgress('pull_model', 5, `Downloading ${modelName}...`);
-                await ollamaManager.pullModelProgressive(modelName, (progress, status) => {
-                    sendProgress('pull_model', progress, status);
-                });
-            }
-            await prisma.appSettings.update({ where: { id: 1 }, data: { modelDownloaded: true } });
-        }
-
-        await prisma.appSettings.update({ where: { id: 1 }, data: { setupComplete: true } });
-        sendProgress('done', 100, 'AI Setup Complete');
-        return { success: true };
-
-    } catch (e) {
-        console.error("AI Setup Failed:", e);
-        return { success: false, error: e.message };
-    }
 });
 
 ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {

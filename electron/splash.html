@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BetBrain</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #020617;
+    color: #e2e8f0;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  /* Video background */
+  .bg-video {
+    position: fixed; inset: 0;
+    object-fit: cover;
+    width: 100%; height: 100%;
+    opacity: 0.25;
+    pointer-events: none;
+  }
+  .bg-overlay {
+    position: fixed; inset: 0;
+    background: linear-gradient(to bottom, rgba(2,6,23,.85), rgba(2,6,23,.6), rgba(2,6,23,.9));
+    pointer-events: none;
+  }
+
+  .container {
+    position: relative; z-index: 10;
+    width: 100%; max-width: 420px;
+    padding: 0 24px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+
+  /* Logo */
+  .logo-row {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 36px;
+  }
+  .logo-row img {
+    width: 48px; height: 48px; border-radius: 12px; object-fit: contain;
+    filter: drop-shadow(0 4px 12px rgba(6,182,212,.3));
+  }
+  .logo-row h1 {
+    font-size: 28px; font-weight: 800; letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #22d3ee, #a855f7);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  /* Steps */
+  .steps { width: 100%; display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
+
+  .step {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-radius: 10px;
+    background: rgba(15,23,42,.4); border: 1px solid rgba(51,65,85,.4);
+    transition: all .3s ease;
+  }
+  .step.active {
+    background: rgba(15,23,42,.7); border-color: rgba(6,182,212,.35);
+    box-shadow: 0 0 20px -6px rgba(6,182,212,.15);
+  }
+  .step.done { border-color: rgba(16,185,129,.25); }
+  .step.error { border-color: rgba(239,68,68,.35); }
+
+  /* Icons */
+  .step-icon {
+    width: 20px; height: 20px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-icon svg { width: 18px; height: 18px; }
+
+  .icon-pending svg { stroke: #475569; }
+  .icon-active svg { stroke: #22d3ee; animation: spin 1s linear infinite; }
+  .icon-done svg { stroke: #10b981; }
+  .icon-error svg { stroke: #ef4444; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .step-label {
+    flex: 1; font-size: 13px; font-weight: 500;
+    color: #94a3b8; transition: color .3s;
+  }
+  .step.active .step-label { color: #f1f5f9; }
+  .step.done .step-label { color: #cbd5e1; }
+
+  .step-status {
+    font-size: 11px; font-family: 'SF Mono', 'Consolas', monospace;
+    color: #475569; flex-shrink: 0; transition: color .3s;
+  }
+  .step.active .step-status { color: #22d3ee; }
+  .step.done .step-status { color: #10b981; }
+  .step.error .step-status { color: #ef4444; }
+
+  /* Progress bar */
+  .progress-box {
+    width: 100%; padding: 14px 16px; border-radius: 12px;
+    background: rgba(15,23,42,.7); border: 1px solid rgba(51,65,85,.45);
+  }
+  .progress-info {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .progress-detail {
+    font-size: 11px; font-family: 'SF Mono', 'Consolas', monospace;
+    color: #64748b; text-transform: uppercase; letter-spacing: .5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 280px;
+  }
+  .progress-time {
+    font-size: 11px; font-family: 'SF Mono', 'Consolas', monospace;
+    color: #22d3ee; flex-shrink: 0;
+  }
+  .progress-track {
+    height: 5px; border-radius: 99px;
+    background: rgba(30,41,59,.6); overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, #06b6d4, #a855f7);
+    transition: width .4s ease-out;
+    min-width: 2%;
+  }
+  .progress-fill.error { background: #ef4444; }
+  .progress-fill.done { background: #10b981; }
+
+  .version {
+    margin-top: 20px;
+    font-size: 10px; font-family: 'SF Mono', 'Consolas', monospace;
+    color: #334155; letter-spacing: .8px;
+  }
+</style>
+</head>
+<body>
+
+<video class="bg-video" id="bg-video" autoplay muted loop playsinline></video>
+<div class="bg-overlay"></div>
+
+<div class="container">
+  <div class="logo-row">
+    <img id="logo-img" alt="BetBrain">
+    <h1>BetBrain</h1>
+  </div>
+
+  <div class="steps" id="steps">
+    <div class="step" data-step="database">
+      <div class="step-icon icon-pending"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg></div>
+      <span class="step-label">Database</span>
+      <span class="step-status">Pending</span>
+    </div>
+    <div class="step" data-step="season_data">
+      <div class="step-icon icon-pending"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9c2.5 0 4.8 1 6.5 2.6"/><polyline points="21 3 21 9 15 9"/></svg></div>
+      <span class="step-label">Season Data</span>
+      <span class="step-status">Pending</span>
+    </div>
+    <div class="step" data-step="ollama_install">
+      <div class="step-icon icon-pending"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg></div>
+      <span class="step-label">Ollama Runtime</span>
+      <span class="step-status">Pending</span>
+    </div>
+    <div class="step" data-step="ollama_service">
+      <div class="step-icon icon-pending"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <span class="step-label">Ollama Service</span>
+      <span class="step-status">Pending</span>
+    </div>
+    <div class="step" data-step="ai_model">
+      <div class="step-icon icon-pending"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5a2.5 2.5 0 00-4.96-.46 2.5 2.5 0 00-1.98 3 2.5 2.5 0 00-1.32 4.24 3 3 0 00.34 5.58 2.5 2.5 0 002.96 3.08A2.5 2.5 0 0012 19.5a2.5 2.5 0 004.96.44 2.5 2.5 0 002.96-3.08 3 3 0 00.34-5.58 2.5 2.5 0 00-1.32-4.24 2.5 2.5 0 00-1.98-3A2.5 2.5 0 0012 4.5"/><path d="M15.7 8.8l-3.7 3.7-2-2"/></svg></div>
+      <span class="step-label">AI Model</span>
+      <span class="step-status">Pending</span>
+    </div>
+  </div>
+
+  <div class="progress-box">
+    <div class="progress-info">
+      <span class="progress-detail" id="detail">Initializing...</span>
+      <span class="progress-time" id="timer">00:00</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="fill" style="width:2%"></div>
+    </div>
+  </div>
+
+  <span class="version">v0.1.0-alpha</span>
+</div>
+
+<script>
+  // Set asset paths from preload (absolute, works in dev + production)
+  (function() {
+    const { logo, video: videoSrc } = window.splashAPI.assets;
+    document.getElementById('logo-img').src = logo;
+    const vid = document.getElementById('bg-video');
+    vid.src = videoSrc;
+    vid.load();
+  })();
+
+  // SVG templates
+  const SVG_SPINNER = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 11-6.2-8.6"/></svg>';
+  const SVG_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+  const SVG_X = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+
+  const STEP_KEYS = ['database','season_data','ollama_install','ollama_service','ai_model'];
+  const stepIndex = {};
+  STEP_KEYS.forEach((k, i) => stepIndex[k] = i);
+
+  const $detail = document.getElementById('detail');
+  const $timer  = document.getElementById('timer');
+  const $fill   = document.getElementById('fill');
+
+  // Timer
+  const startTime = Date.now();
+  setInterval(() => {
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    $timer.textContent = mm + ':' + ss;
+  }, 1000);
+
+  function updateStep(stepKey, state, statusText) {
+    const el = document.querySelector(`.step[data-step="${stepKey}"]`);
+    if (!el) return;
+    el.className = 'step ' + state;
+    const iconDiv = el.querySelector('.step-icon');
+    iconDiv.className = 'step-icon icon-' + state;
+    if (state === 'active')  iconDiv.innerHTML = SVG_SPINNER;
+    else if (state === 'done')   iconDiv.innerHTML = SVG_CHECK;
+    else if (state === 'error')  iconDiv.innerHTML = SVG_X;
+    el.querySelector('.step-status').textContent = statusText;
+  }
+
+  // Listen for progress from main process
+  window.splashAPI.onProgress((data) => {
+    const { step, progress, detail } = data;
+    $detail.textContent = detail || 'Working...';
+
+    const idx = stepIndex[step];
+
+    if (step === 'done') {
+      // Mark all done
+      STEP_KEYS.forEach(k => updateStep(k, 'done', 'OK'));
+      $fill.style.width = '100%';
+      $fill.className = 'progress-fill done';
+      $detail.textContent = 'All systems ready';
+      return;
+    }
+
+    if (step === 'error') {
+      $fill.className = 'progress-fill error';
+      // Mark current active as error
+      STEP_KEYS.forEach(k => {
+        const el = document.querySelector(`.step[data-step="${k}"]`);
+        if (el && el.classList.contains('active')) {
+          updateStep(k, 'error', 'Failed');
+        }
+      });
+      return;
+    }
+
+    if (idx === undefined) return;
+
+    // Mark previous steps done
+    for (let i = 0; i < idx; i++) updateStep(STEP_KEYS[i], 'done', 'OK');
+    // Mark current active
+    const pctText = (progress > 0 && progress < 100) ? progress + '%' : 'Checking...';
+    updateStep(step, 'active', pctText);
+
+    // Overall progress
+    const overall = Math.round(((idx + progress / 100) / STEP_KEYS.length) * 100);
+    $fill.style.width = Math.max(2, overall) + '%';
+  });
+</script>
+</body>
+</html>

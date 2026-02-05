@@ -48,7 +48,6 @@ export interface ElectronAPI {
         modelDownloaded?: boolean;
         setupComplete?: boolean;
     }>;
-    startAiSetup: () => Promise<{ success: boolean; error?: string }>;
     on: (
         channel: string,
         fn: (event: unknown, ...args: unknown[]) => void
