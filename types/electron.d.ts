@@ -1,3 +1,174 @@
+export interface EspnStandingEntry {
+    espnId: string | null;
+    internalId: number | null;
+    team: string;
+    shortName: string;
+    logo: string | null;
+    rank: number;
+    rankChange: number;
+    played: number;
+    wins: number;
+    draws: number;
+    losses: number;
+    goalsFor: number;
+    goalsAgainst: number;
+    goalDifference: number;
+    goalDifference_display: string;
+    points: number;
+    ppg: number;
+    deductions: number;
+    overallRecord: string;
+    note: { color: string; description: string; rank: number } | null;
+    league: string;
+}
+
+export interface EspnScore {
+    id: string;
+    name: string;
+    shortName: string;
+    date: string;
+    status: string;
+    statusDetail: string;
+    statusState: 'pre' | 'in' | 'post';
+    clock: string;
+    period: number;
+    isLive: boolean;
+    isCompleted: boolean;
+    venue: string | null;
+    venueCity: string | null;
+    attendance: number | null;
+    league: string;
+    leagueName: string;
+    leagueIcon: string;
+    home: {
+        espnId: string | null;
+        internalId: number | null;
+        name: string;
+        shortName: string;
+        logo: string | null;
+        score: string;
+        winner: boolean;
+        form: string;
+        record: string;
+    };
+    away: {
+        espnId: string | null;
+        internalId: number | null;
+        name: string;
+        shortName: string;
+        logo: string | null;
+        score: string;
+        winner: boolean;
+        form: string;
+        record: string;
+    };
+}
+
+export interface EspnNewsArticle {
+    id: string;
+    headline: string;
+    description: string;
+    published: string;
+    league: string;
+    leagueName: string;
+    leagueIcon: string;
+    images: Array<{ url: string; caption: string; width: number; height: number }>;
+    links: string | null;
+    type: string;
+    premium: boolean;
+}
+
+export interface EspnTeam {
+    espnId: string;
+    internalId: number | null;
+    name: string;
+    shortName: string;
+    logo: string | null;
+    color: string | null;
+    alternateColor: string | null;
+    league: string;
+}
+
+export interface EspnMatchSummary {
+    boxscore: Array<{
+        espnId: string;
+        internalId: number | null;
+        name: string;
+        shortName: string;
+        logo: string;
+        color: string;
+        stats: Record<string, string>;
+    }>;
+    keyEvents: Array<{
+        id: string;
+        type: string;
+        typeName: string;
+        text: string;
+        shortText: string;
+        minute: string;
+        period: number;
+        isGoal: boolean;
+        team: { id: string; name: string } | null;
+        player: string | null;
+    }>;
+    rosters: Array<{
+        espnId: string;
+        name: string;
+        logo: string;
+        players: Array<{
+            id: string;
+            name: string;
+            position: string;
+            jersey: string;
+            starter: boolean;
+            subbedIn: boolean;
+            subbedOut: boolean;
+            stats: unknown[];
+        }>;
+    }>;
+    odds: Array<{
+        provider: string;
+        details: string;
+        overUnder: number;
+        spread: number;
+        homeMoneyLine: number;
+        awayMoneyLine: number;
+    }>;
+    h2h: Array<{
+        id: string;
+        date: string;
+        name: string;
+        score: string;
+    }>;
+    commentary: Array<{
+        text: string;
+        time: string;
+        period: number;
+    }>;
+    venue: string | null;
+    attendance: number | null;
+}
+
+export interface EspnTeamSchedule {
+    team: {
+        espnId: string;
+        internalId: number | null;
+        name: string;
+        logo: string;
+        record: string;
+        standing: string;
+    } | null;
+    events: EspnScore[];
+}
+
+export interface EspnLeague {
+    code: string;
+    name: string;
+    icon: string;
+    internalCode: string;
+    internalId: number;
+}
+
 export interface ElectronAPI {
     getAppVersion: () => Promise<string>;
     getData: (category: 'football' | 'f1') => Promise<unknown>;
@@ -19,11 +190,11 @@ export interface ElectronAPI {
     simulateMatchday: (leagueId: number) => Promise<unknown>;
     simulateTournamentRound: (leagueId: number) => Promise<{ round: string | null; count?: number; message?: string }>;
     getTournamentBracket: (leagueId: number) => Promise<{
-        playoffs?: any[];
-        r16?: any[];
-        qf?: any[];
-        sf?: any[];
-        final?: any;
+        playoffs?: unknown[];
+        r16?: unknown[];
+        qf?: unknown[];
+        sf?: unknown[];
+        final?: unknown;
     } | null>;
     simulateMatch: (data: { homeId: number; awayId: number }) => Promise<unknown>;
     simulateSingleMatch: (matchId: number) => Promise<{ homeGoals: number; awayGoals: number }>;
@@ -48,6 +219,22 @@ export interface ElectronAPI {
         modelDownloaded?: boolean;
         setupComplete?: boolean;
     }>;
+    getStandings: (leagueId: number, season?: string) => Promise<unknown>;
+
+    // ESPN API
+    espnGetNews: (league?: string) => Promise<EspnNewsArticle[]>;
+    espnGetScores: (league?: string) => Promise<EspnScore[]>;
+    espnGetScoresByDate: (league: string, date: string) => Promise<EspnScore[]>;
+    espnGetStandings: (league: string) => Promise<EspnStandingEntry[]>;
+    espnGetTeamSchedule: (league: string, teamId: string) => Promise<EspnTeamSchedule>;
+    espnGetMatchSummary: (league: string, eventId: string) => Promise<EspnMatchSummary | null>;
+    espnGetTeams: (league: string) => Promise<EspnTeam[]>;
+    espnGetLeagues: () => Promise<EspnLeague[]>;
+    espnGetLeagueCode: (internalCodeOrId: string | number) => Promise<string | null>;
+    espnGetTeamId: (internalId: number) => Promise<number | null>;
+    espnSyncLogos: () => Promise<{ success: boolean; count?: number; error?: string }>;
+    espnSyncStandings: () => Promise<{ success: boolean; count?: number; error?: string }>;
+
     on: (
         channel: string,
         fn: (event: unknown, ...args: unknown[]) => void

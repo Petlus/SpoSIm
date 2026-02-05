@@ -14,7 +14,7 @@ class AiBridge {
      * @param {function} [onProgress] - (progress: number, step: string) => void
      */
     async generateExpertAnalysis(context, onProgress) {
-        const { home, away, odds, homeDetails, awayDetails, injuries, standings, topPlayers } = context;
+        const { home, away, odds, homeDetails, awayDetails, injuries, standings, topPlayers, espn } = context;
 
         let selectedModel = this.defaultModel;
 
@@ -27,7 +27,7 @@ class AiBridge {
         console.log(`AI Analyst using model: ${selectedModel}`);
         if (onProgress) onProgress(35, 'Preparing analysis...');
 
-        // Format standings info
+        // Format standings info (sim-based)
         const homeStanding = standings?.home || { position: '?', points: 0, played: 0 };
         const awayStanding = standings?.away || { position: '?', points: 0, played: 0 };
 
@@ -50,30 +50,91 @@ class AiBridge {
         const favorite = probs[0];
         const favoriteText = favorite.type === 'draw' ? 'Unentschieden ist am wahrscheinlichsten' : `${favorite.name} ist FAVORIT (${favorite.prob}%)`;
 
+        // ── Build ESPN Real-World Data Block ──
+        let espnBlock = '';
+        if (espn) {
+            const hSt = espn.homeStanding;
+            const aSt = espn.awayStanding;
+            const lines = [];
+
+            // Real standings
+            if (hSt || aSt) {
+                const hLine = hSt
+                    ? `${home.name} Rang #${hSt.rank} (${hSt.points} Pkt, ${hSt.played} Sp, ${hSt.wins}S/${hSt.draws}U/${hSt.losses}N, ${hSt.goalsFor}:${hSt.goalsAgainst} Tore, PPG ${hSt.ppg})`
+                    : `${home.name} (keine ESPN-Daten)`;
+                const aLine = aSt
+                    ? `${away.name} Rang #${aSt.rank} (${aSt.points} Pkt, ${aSt.played} Sp, ${aSt.wins}S/${aSt.draws}U/${aSt.losses}N, ${aSt.goalsFor}:${aSt.goalsAgainst} Tore, PPG ${aSt.ppg})`
+                    : `${away.name} (keine ESPN-Daten)`;
+                lines.push(`- Echte Tabelle: ${hLine} | ${aLine}`);
+            }
+
+            // Real form
+            if (espn.homeForm || espn.awayForm) {
+                lines.push(`- Echte Form (letzte 5): ${home.name} ${espn.homeForm || 'N/A'} | ${away.name} ${espn.awayForm || 'N/A'}`);
+            }
+
+            // Real recent results
+            const fmtResults = (results, teamName) => {
+                if (!results || results.length === 0) return `${teamName}: keine Daten`;
+                return `${teamName}: ${results.map(r => `${r.result} vs ${r.opponent} (${r.score})`).join(', ')}`;
+            };
+            if ((espn.homeRecentResults?.length > 0) || (espn.awayRecentResults?.length > 0)) {
+                lines.push(`- Letzte Spiele: ${fmtResults(espn.homeRecentResults, home.name)} | ${fmtResults(espn.awayRecentResults, away.name)}`);
+            }
+
+            // Real goals stats from standings
+            if (hSt && aSt) {
+                lines.push(`- Echte Saison-Tore: ${home.name} ${hSt.goalsFor} geschossen, ${hSt.goalsAgainst} kassiert | ${away.name} ${aSt.goalsFor} geschossen, ${aSt.goalsAgainst} kassiert`);
+            }
+
+            // ESPN H2H
+            if (espn.h2h && espn.h2h.length > 0) {
+                const h2hStr = espn.h2h.slice(0, 5).map(g => `${g.name || ''} ${g.score || ''}`).join('; ');
+                lines.push(`- Echte H2H: ${h2hStr}`);
+            }
+
+            // ESPN Bookmaker Odds
+            if (espn.odds && espn.odds.length > 0) {
+                const firstOdds = espn.odds[0];
+                const oddsLine = [
+                    firstOdds.provider ? `(${firstOdds.provider})` : '',
+                    firstOdds.details || '',
+                    firstOdds.overUnder ? `O/U: ${firstOdds.overUnder}` : '',
+                    firstOdds.homeMoneyLine ? `Home ML: ${firstOdds.homeMoneyLine}` : '',
+                    firstOdds.awayMoneyLine ? `Away ML: ${firstOdds.awayMoneyLine}` : '',
+                ].filter(Boolean).join(' | ');
+                lines.push(`- Buchmacher-Odds: ${oddsLine}`);
+            }
+
+            if (lines.length > 0) {
+                espnBlock = `\n\nREAL-WORLD DATA (ESPN - echte aktuelle Daten!):\n${lines.join('\n')}`;
+            }
+        }
+
         const prompt = `MATCH: ${home.name} vs ${away.name}
 
 WICHTIG: ${favoriteText}
 
 DATEN:
-- Tabelle: ${home.name} (#${homeStanding.position}, ${homeStanding.points} Pkt) vs ${away.name} (#${awayStanding.position}, ${awayStanding.points} Pkt)
+- Sim-Tabelle: ${home.name} (#${homeStanding.position}, ${homeStanding.points} Pkt) vs ${away.name} (#${awayStanding.position}, ${awayStanding.points} Pkt)
 - Marktwert: ${home.name} €${((home.market_value || 50000000) / 1000000).toFixed(0)}M vs ${away.name} €${((away.market_value || 50000000) / 1000000).toFixed(0)}M
 - Stärke: ${home.name} (ATT:${homeDetails.att}/MID:${homeDetails.mid}/DEF:${homeDetails.def}) vs ${away.name} (ATT:${awayDetails.att}/MID:${awayDetails.mid}/DEF:${awayDetails.def})
-- Erwartete Tore: ${home.name} ~${homeExpGoals} | ${away.name} ~${awayExpGoals} | Gesamt: ~${totalExpGoals}
+- Erwartete Tore: ${home.name} ~${homeExpGoals} | ${away.name} ~${awayExpGoals} | Gesamt: ~${totalExpGoals}${espnBlock}
 
-SIMULATION (1000x Monte-Carlo):
+SIMULATION (1000x Monte-Carlo, kalibriert mit echten ESPN-Daten):
 - ${home.name} Sieg: ${odds.homeWinProb}% ${odds.homeWinProb >= 50 ? '⭐ FAVORIT' : ''}
 - Unentschieden: ${odds.drawProb}% ${odds.drawProb >= 35 ? '⚠️ HOCH' : ''}
 - ${away.name} Sieg: ${odds.awayWinProb}% ${odds.awayWinProb >= 50 ? '⭐ FAVORIT' : ''}
 
-AUFGABE: Gib EINE klare Wett-Empfehlung!
+AUFGABE: Gib EINE klare Wett-Empfehlung! Nutze die ECHTEN ESPN-Daten als Hauptgrundlage, ergänzt durch die Simulation.
 
-**Analyse:** (1-2 Sätze: Wer ist Favorit? Warum?)
+**Analyse:** (2-3 Sätze: Wer ist Favorit? Warum? Beziehe die echte Form und Tabelle mit ein!)
 
 **MEIN TIPP:** [Ergebnis z.B. 2:1 oder 0:0]
 
 **BESTE WETTE:** [Die eine Wette die am sichersten ist, z.B. "Sieg Bayern", "Über 1.5 Tore", "Beide treffen", "Double Chance 1X", etc.]
 
-Antworte NUR auf Deutsch. Kurz und klar. Wähle die EINE beste Wette basierend auf den Simulationsdaten!`;
+Antworte NUR auf Deutsch. Kurz und klar. Nutze echte ESPN-Daten als primäre Basis!`;
 
         try {
             if (onProgress) onProgress(50, 'Generating AI analysis...');
@@ -85,7 +146,7 @@ Antworte NUR auf Deutsch. Kurz und klar. Wähle die EINE beste Wette basierend a
                     temperature: 0.3,
                     num_predict: 500
                 },
-                system: "Du bist ein Sportwetten-Experte. Gib präzise, strukturierte Wett-Empfehlungen basierend auf den Daten. Keine langen Erklärungen, nur Fakten und Empfehlungen."
+                system: "Du bist ein Sportwetten-Experte mit Zugang zu echten ESPN-Livedaten. Gib präzise, strukturierte Wett-Empfehlungen. Priorisiere die ECHTEN ESPN-Daten (Tabelle, Form, Tore, H2H, Buchmacher-Odds) vor Simulationsdaten. Keine langen Erklärungen, nur Fakten und klare Empfehlungen."
             });
 
             if (onProgress) onProgress(95, 'Processing response...');

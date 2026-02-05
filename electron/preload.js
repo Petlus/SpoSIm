@@ -18,6 +18,22 @@ contextBridge.exposeInMainWorld('electron', {
     startOllama: () => ipcRenderer.invoke('start-ollama'),
     getAiPrediction: (homeId, awayId, odds) => ipcRenderer.invoke('get-ai-prediction', { homeId, awayId, odds }),
     getSetupStatus: () => ipcRenderer.invoke('get-setup-status'),
+    getStandings: (leagueId, season) => ipcRenderer.invoke('get-standings', { leagueId, season }),
+
+    // ESPN API
+    espnGetNews: (league) => ipcRenderer.invoke('espn-get-news', league || null),
+    espnGetScores: (league) => ipcRenderer.invoke('espn-get-scores', league || null),
+    espnGetScoresByDate: (league, date) => ipcRenderer.invoke('espn-get-scores-by-date', { league, date }),
+    espnGetStandings: (league) => ipcRenderer.invoke('espn-get-standings', league),
+    espnGetTeamSchedule: (league, teamId) => ipcRenderer.invoke('espn-get-team-schedule', { league, teamId }),
+    espnGetMatchSummary: (league, eventId) => ipcRenderer.invoke('espn-get-match-summary', { league, eventId }),
+    espnGetTeams: (league) => ipcRenderer.invoke('espn-get-teams', league),
+    espnGetLeagues: () => ipcRenderer.invoke('espn-get-leagues'),
+    espnGetLeagueCode: (internalCodeOrId) => ipcRenderer.invoke('espn-get-league-code', internalCodeOrId),
+    espnGetTeamId: (internalId) => ipcRenderer.invoke('espn-get-team-id', internalId),
+    espnSyncLogos: () => ipcRenderer.invoke('espn-sync-logos'),
+    espnSyncStandings: () => ipcRenderer.invoke('espn-sync-standings'),
+
     on: (channel, fn) => {
         const subscription = (_event, ...args) => fn(_event, ...args);
         ipcRenderer.on(channel, subscription);

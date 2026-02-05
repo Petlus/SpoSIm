@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, User, Shield, Activity, Star, Trophy, Target, Sparkles, TrendingUp } from 'lucide-react';
+import { ArrowLeft, User, Shield, Activity, Star, Trophy, Target, Sparkles, TrendingUp, Calendar, Clock, Globe, RefreshCw, ChevronRight } from 'lucide-react';
+import type { EspnScore } from '../../../../types/electron';
 
 export default function TeamPageClient() {
     const { teamId } = useParams();
@@ -10,6 +11,10 @@ export default function TeamPageClient() {
     const [team, setTeam] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [noElectron, setNoElectron] = useState(false);
+    const [espnSchedule, setEspnSchedule] = useState<EspnScore[]>([]);
+    const [espnTeamInfo, setEspnTeamInfo] = useState<any>(null);
+    const [loadingEspn, setLoadingEspn] = useState(false);
+    const [activeTab, setActiveTab] = useState<'squad' | 'schedule'>('squad');
 
     useEffect(() => {
         if (teamId) loadTeam();
@@ -20,6 +25,8 @@ export default function TeamPageClient() {
             const data = await window.electron.getTeamDetails(parseInt(teamId as string));
             if (!(data as { error?: string }).error) {
                 setTeam(data);
+                // Load ESPN schedule for this team
+                loadEspnSchedule(parseInt(teamId as string));
             }
             setLoading(false);
         } else {
@@ -27,6 +34,26 @@ export default function TeamPageClient() {
             setNoElectron(true);
         }
     };
+
+    const loadEspnSchedule = useCallback(async (internalId: number) => {
+        if (!window.electron) return;
+        setLoadingEspn(true);
+        try {
+            const espnTeamId = await window.electron.espnGetTeamId(internalId);
+            if (!espnTeamId) { setLoadingEspn(false); return; }
+            // We need to figure out the league code. Get it from team's league ID
+            const teamData = await window.electron.getTeamDetails(internalId) as any;
+            if (!teamData?.leagueId) { setLoadingEspn(false); return; }
+            const leagueCode = await window.electron.espnGetLeagueCode(teamData.leagueId);
+            if (!leagueCode) { setLoadingEspn(false); return; }
+            const schedule = await window.electron.espnGetTeamSchedule(leagueCode, String(espnTeamId));
+            if (schedule) {
+                setEspnTeamInfo(schedule.team);
+                setEspnSchedule(schedule.events || []);
+            }
+        } catch (e) { console.error('ESPN schedule error:', e); }
+        finally { setLoadingEspn(false); }
+    }, []);
 
     if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 animate-pulse">Loading Team Details...</div>;
     if (noElectron) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">Run BetBrain in Electron to use this feature.</div>;
@@ -137,8 +164,133 @@ export default function TeamPageClient() {
                 </div>
             </div>
 
+            {/* ESPN Real-World Info Bar */}
+            {espnTeamInfo && (
+                <div className="glass-card p-4 mb-6 flex items-center justify-between relative z-10">
+                    <div className="flex items-center gap-4">
+                        <Globe size={16} className="text-emerald-400" />
+                        <span className="text-xs text-slate-400">Real-World:</span>
+                        <span className="text-sm font-bold text-white">{espnTeamInfo.record || ''}</span>
+                        <span className="text-xs text-slate-500">{espnTeamInfo.standing || ''}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-600 font-mono">ESPN LIVE DATA</span>
+                </div>
+            )}
+
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-2 mb-6 relative z-10">
+                <div className="flex bg-black/40 rounded-xl p-1 text-sm border border-white/5 backdrop-blur-md">
+                    <button onClick={() => setActiveTab('squad')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'squad' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                        <User size={16} /> Squad
+                    </button>
+                    <button onClick={() => setActiveTab('schedule')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'schedule' ? 'bg-emerald-600/30 text-emerald-400 shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                        <Calendar size={16} /> Real Schedule
+                        {espnSchedule.length > 0 && <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 rounded-full">{espnSchedule.length}</span>}
+                    </button>
+                </div>
+                {activeTab === 'schedule' && (
+                    <button onClick={() => loadEspnSchedule(parseInt(teamId as string))} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50 ml-2">
+                        <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
+                    </button>
+                )}
+            </div>
+
+            {/* ESPN Schedule Tab */}
+            {activeTab === 'schedule' && (
+                <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {loadingEspn && espnSchedule.length === 0 ? (
+                        <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
+                            <RefreshCw className="animate-spin" size={20} /> Loading real schedule...
+                        </div>
+                    ) : espnSchedule.length === 0 ? (
+                        <div className="glass-card p-12 text-center text-slate-400">
+                            <Calendar size={32} className="mx-auto mb-3 opacity-50" />
+                            <p>No ESPN schedule data available for this team.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            {/* Upcoming */}
+                            {espnSchedule.filter(e => e.statusState === 'pre').length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <Clock size={14} /> Upcoming Matches
+                                    </h3>
+                                    <div className="space-y-2">
+                                        {espnSchedule.filter(e => e.statusState === 'pre').map(ev => (
+                                            <div key={ev.id} className="glass-card p-4 flex items-center gap-4">
+                                                <div className="flex-shrink-0 w-20 text-center">
+                                                    <div className="text-xs text-slate-500 font-mono">{new Date(ev.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</div>
+                                                    <div className="text-xs text-slate-600 font-mono">{new Date(ev.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+                                                </div>
+                                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                        {ev.home.logo && <img src={ev.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        <span className="text-sm font-bold text-white truncate">{ev.home.name}</span>
+                                                    </div>
+                                                    <span className="text-slate-600 text-xs flex-shrink-0">vs</span>
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                        <span className="text-sm font-bold text-white truncate">{ev.away.name}</span>
+                                                        {ev.away.logo && <img src={ev.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                    </div>
+                                                </div>
+                                                {ev.venue && <div className="text-[10px] text-slate-600 truncate max-w-[120px] flex-shrink-0">{ev.venue}</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Results */}
+                            {espnSchedule.filter(e => e.isCompleted).length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <Trophy size={14} /> Results
+                                    </h3>
+                                    <div className="space-y-2">
+                                        {espnSchedule.filter(e => e.isCompleted).map(ev => {
+                                            const teamInternalId = parseInt(teamId as string);
+                                            const isHome = ev.home.internalId === teamInternalId;
+                                            const teamScore = isHome ? ev.home.score : ev.away.score;
+                                            const opponentScore = isHome ? ev.away.score : ev.home.score;
+                                            const won = parseInt(teamScore) > parseInt(opponentScore);
+                                            const drew = teamScore === opponentScore;
+                                            return (
+                                                <div key={ev.id} className="glass-card p-4 flex items-center gap-4">
+                                                    <div className="flex-shrink-0 w-20 text-center">
+                                                        <div className="text-xs text-slate-500 font-mono">{new Date(ev.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</div>
+                                                        <div className={`text-xs font-bold px-2 py-0.5 rounded mt-1 ${won ? 'bg-emerald-500/20 text-emerald-400' : drew ? 'bg-slate-600/20 text-slate-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                                                            {won ? 'W' : drew ? 'D' : 'L'}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                            {ev.home.logo && <img src={ev.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                            <span className={`text-sm font-medium truncate ${ev.home.winner ? 'text-white font-bold' : 'text-slate-400'}`}>{ev.home.name}</span>
+                                                        </div>
+                                                        <div className="flex-shrink-0 px-3">
+                                                            <span className="font-mono font-bold text-white">{ev.home.score} - {ev.away.score}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                            <span className={`text-sm font-medium truncate ${ev.away.winner ? 'text-white font-bold' : 'text-slate-400'}`}>{ev.away.name}</span>
+                                                            {ev.away.logo && <img src={ev.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            <p className="text-[10px] text-slate-600 text-center">Schedule from ESPN</p>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Squad Section - FIFA Cards Grid */}
-            <div className="mb-8">
+            {activeTab === 'squad' && (
+            <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                         <span className={`w-1 h-8 rounded-full bg-gradient-to-b ${theme.from} to-transparent`}></span>
@@ -213,6 +365,7 @@ export default function TeamPageClient() {
                     )}
                 </div>
             </div>
+            )}
         </div>
     );
 }

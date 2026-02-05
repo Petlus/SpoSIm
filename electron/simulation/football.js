@@ -4,8 +4,10 @@ const footballSim = {};
  * Calculates a match result between two teams.
  * @param {Object} home Team object
  * @param {Object} away Team object
+ * @param {Object|null} espnContext Optional ESPN real-world calibration data
+ *   { homeRank, awayRank, homePPG, awayPPG, homeForm, awayForm }
  */
-footballSim.simulateMatch = (home, away) => {
+footballSim.simulateMatch = (home, away, espnContext = null) => {
     // 1. Determine Power/Elo
     // If Elo is available (from updated DB), use it. otherwise fallback to 'power'.
     const useElo = home.eloRating && away.eloRating;
@@ -37,6 +39,52 @@ footballSim.simulateMatch = (home, away) => {
         // Sigmoid Function
         const powerDiff = homeStr - awayStr;
         winProb = 1 / (1 + Math.exp(-powerDiff / 12));
+    }
+
+    // ESPN Real-World Calibration (if available)
+    // Adjusts win probability based on actual league performance
+    if (espnContext) {
+        let espnAdjustment = 0;
+
+        // PPG calibration: if ESPN PPG differs significantly from Elo-implied performance,
+        // nudge the win probability towards the real-world performance.
+        // Typical PPG range: 0.5 (bad) to 2.8 (dominant)
+        if (espnContext.homePPG > 0 && espnContext.awayPPG > 0) {
+            const ppgDiff = espnContext.homePPG - espnContext.awayPPG;
+            // Clamp PPG influence to max +/- 5% on win probability
+            espnAdjustment += Math.max(-0.05, Math.min(0.05, ppgDiff * 0.03));
+        }
+
+        // Rank calibration: top-3 teams get small boost, bottom-3 get small penalty
+        if (espnContext.homeRank > 0 && espnContext.awayRank > 0) {
+            const rankDiff = espnContext.awayRank - espnContext.homeRank; // positive = home ranked higher
+            // Clamp rank influence to max +/- 3%
+            espnAdjustment += Math.max(-0.03, Math.min(0.03, rankDiff * 0.002));
+        }
+
+        // ESPN form bonus: real-world momentum
+        if (espnContext.homeForm && espnContext.awayForm) {
+            const formScore = (str) => {
+                let s = 0;
+                for (const ch of str) {
+                    if (ch === 'W') s += 1;
+                    else if (ch === 'L') s -= 1;
+                }
+                return s;
+            };
+            const formDiff = formScore(espnContext.homeForm) - formScore(espnContext.awayForm);
+            // Clamp form influence to max +/- 2%
+            espnAdjustment += Math.max(-0.02, Math.min(0.02, formDiff * 0.005));
+        }
+
+        // Apply ESPN adjustment to win probability (capped at 10% total shift)
+        espnAdjustment = Math.max(-0.10, Math.min(0.10, espnAdjustment));
+        winProb = Math.max(0.05, Math.min(0.95, winProb + espnAdjustment));
+
+        // Also adjust strength values proportionally for goal simulation
+        const strAdjust = 1 + espnAdjustment * 0.5; // Halved effect on goals
+        homeStr *= strAdjust;
+        awayStr *= (2 - strAdjust); // Inverse adjustment for away
     }
 
     // 4. Determine Winner using probability
@@ -164,13 +212,13 @@ footballSim.simulateMatch = (home, away) => {
     };
 };
 
-footballSim.simulateMatchOdds = (home, away, iterations = 100) => {
+footballSim.simulateMatchOdds = (home, away, iterations = 100, espnContext = null) => {
     let homeWins = 0;
     let draws = 0;
     let awayWins = 0;
 
     for (let i = 0; i < iterations; i++) {
-        const res = footballSim.simulateMatch(home, away);
+        const res = footballSim.simulateMatch(home, away, espnContext);
         if (res.homeGoals > res.awayGoals) homeWins++;
         else if (res.awayGoals > res.homeGoals) awayWins++;
         else draws++;

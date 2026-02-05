@@ -18,6 +18,7 @@ const f1Sim = require('./simulation/f1');
 
 const dataFetcher = require('./data_fetcher');
 const dailySync = require('./data_sync');
+const espnService = require('./espn_service');
 const { LEAGUES, TEAMS } = require('./constants');
 const { CURRENT_SEASON_STR } = require('../config/season');
 
@@ -219,6 +220,18 @@ app.whenReady().then(async () => {
 
     // Daily sync (delayed)
     setTimeout(() => dailySync.syncIfNeeded(mainWindow), 5000);
+
+    // ESPN: update logos and standings (run in background after 10 sec)
+    setTimeout(async () => {
+        try {
+            console.log('[ESPN] Background sync: updating logos and standings...');
+            await dataFetcher.updateTeamLogosFromEspn();
+            await dataFetcher.syncStandingsFromEspn();
+            console.log('[ESPN] Background sync complete.');
+        } catch (e) {
+            console.error('[ESPN] Background sync error:', e.message);
+        }
+    }, 10000);
 });
 
 app.on('window-all-closed', () => {
@@ -317,15 +330,119 @@ async function getTeamForm(teamId, matchCount = 5) {
     return form;
 }
 
-async function calculateFormFactor(teamId) {
-    const form = await getTeamForm(teamId, 5);
-    let bonus = 0;
-    for (const res of form) {
-        if (res === 'W') bonus += 2;
-        else if (res === 'L') bonus -= 1;
+/**
+ * Fetch ESPN real-world data for a team: standings, form, recent results.
+ * Returns null if ESPN data is unavailable (graceful fallback).
+ */
+async function getEspnEnrichedTeamData(internalId) {
+    try {
+        const team = await prisma.team.findUnique({ where: { id: internalId } });
+        if (!team) return null;
+
+        const leagueCode = espnService.getEspnLeagueCode(team.leagueId);
+        const espnTeamId = espnService.getEspnTeamId(internalId);
+        if (!leagueCode || !espnTeamId) return null;
+
+        // Load standings + schedule in parallel
+        const [standings, schedule] = await Promise.allSettled([
+            espnService.getStandings(leagueCode),
+            espnService.getTeamSchedule(leagueCode, String(espnTeamId)),
+        ]);
+
+        let standingEntry = null;
+        if (standings.status === 'fulfilled' && standings.value.length > 0) {
+            standingEntry = standings.value.find(e => e.internalId === internalId) || null;
+        }
+
+        let recentResults = [];
+        let espnFormString = '';
+        if (schedule.status === 'fulfilled' && schedule.value.events) {
+            // Get completed matches (most recent first, already sorted by date desc from API)
+            const completed = schedule.value.events
+                .filter(e => e.isCompleted)
+                .slice(0, 5);
+            recentResults = completed.map(e => {
+                const isHome = e.home.internalId === internalId || e.home.espnId === String(espnTeamId);
+                const teamScore = parseInt(isHome ? e.home.score : e.away.score) || 0;
+                const oppScore = parseInt(isHome ? e.away.score : e.home.score) || 0;
+                const result = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'D';
+                return {
+                    opponent: isHome ? e.away.name : e.home.name,
+                    score: `${e.home.score}-${e.away.score}`,
+                    result,
+                    date: e.date,
+                    isHome
+                };
+            });
+            espnFormString = recentResults.map(r => r.result).join('');
+        }
+
+        return {
+            standing: standingEntry ? {
+                rank: standingEntry.rank,
+                points: standingEntry.points,
+                played: standingEntry.played,
+                wins: standingEntry.wins,
+                draws: standingEntry.draws,
+                losses: standingEntry.losses,
+                goalsFor: standingEntry.goalsFor,
+                goalsAgainst: standingEntry.goalsAgainst,
+                goalDifference: standingEntry.goalDifference,
+                ppg: standingEntry.ppg || 0,
+                overallRecord: standingEntry.overallRecord || '',
+            } : null,
+            form: espnFormString,         // e.g. "WWLDW"
+            recentResults,                // last 5 matches with details
+            leagueCode,
+            espnTeamId,
+        };
+    } catch (e) {
+        console.error(`[ESPN] getEspnEnrichedTeamData error for ${internalId}:`, e.message);
+        return null;
     }
-    bonus = Math.max(-5, Math.min(10, bonus));
-    return 1 + (bonus / 100);
+}
+
+/**
+ * Build espnContext object for simulation engine from two ESPN enriched data objects.
+ * Returns null if no ESPN data available.
+ */
+function buildEspnSimContext(homeEspn, awayEspn) {
+    if (!homeEspn && !awayEspn) return null;
+    return {
+        homeRank: homeEspn?.standing?.rank || 0,
+        awayRank: awayEspn?.standing?.rank || 0,
+        homePPG: homeEspn?.standing?.ppg || 0,
+        awayPPG: awayEspn?.standing?.ppg || 0,
+        homeForm: homeEspn?.form || '',
+        awayForm: awayEspn?.form || '',
+    };
+}
+
+async function calculateFormFactor(teamId, espnData = null) {
+    // Sim-based form (from internal DB matches)
+    const form = await getTeamForm(teamId, 5);
+    let simBonus = 0;
+    for (const res of form) {
+        if (res === 'W') simBonus += 2;
+        else if (res === 'L') simBonus -= 1;
+    }
+    simBonus = Math.max(-5, Math.min(10, simBonus));
+
+    // ESPN real-world form (if available)
+    let espnBonus = 0;
+    if (espnData && espnData.form && espnData.form.length > 0) {
+        for (const ch of espnData.form) {
+            if (ch === 'W') espnBonus += 2;
+            else if (ch === 'L') espnBonus -= 1;
+        }
+        espnBonus = Math.max(-5, Math.min(10, espnBonus));
+        // Blend 50/50: sim form + ESPN real form
+        const blended = (simBonus + espnBonus) / 2;
+        return 1 + (blended / 100);
+    }
+
+    // Fallback: sim-only
+    return 1 + (simBonus / 100);
 }
 
 async function seedDatabase() {
@@ -621,10 +738,17 @@ ipcMain.handle('get-match-odds', async (event, { homeId, awayId }) => {
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
-    home.form = await calculateFormFactor(homeId);
-    away.form = await calculateFormFactor(awayId);
+    // Load ESPN data for calibration
+    const [homeEspn, awayEspn] = await Promise.all([
+        getEspnEnrichedTeamData(homeId),
+        getEspnEnrichedTeamData(awayId),
+    ]);
+    const espnContext = buildEspnSimContext(homeEspn, awayEspn);
 
-    return footballSim.simulateMatchOdds(home, away, 1000);
+    home.form = await calculateFormFactor(homeId, homeEspn);
+    away.form = await calculateFormFactor(awayId, awayEspn);
+
+    return footballSim.simulateMatchOdds(home, away, 1000, espnContext);
 });
 
 ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
@@ -636,8 +760,15 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
     const homeForm = await getTeamForm(homeId, 5);
     const awayForm = await getTeamForm(awayId, 5);
 
-    home.form = await calculateFormFactor(homeId);
-    away.form = await calculateFormFactor(awayId);
+    // Load ESPN data for calibration
+    const [homeEspn, awayEspn] = await Promise.all([
+        getEspnEnrichedTeamData(homeId),
+        getEspnEnrichedTeamData(awayId),
+    ]);
+    const espnContext = buildEspnSimContext(homeEspn, awayEspn);
+
+    home.form = await calculateFormFactor(homeId, homeEspn);
+    away.form = await calculateFormFactor(awayId, awayEspn);
 
     const homeStr = await calculateTeamStrength(homeId);
     const awayStr = await calculateTeamStrength(awayId);
@@ -645,7 +776,7 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
-    const odds = footballSim.simulateMatchOdds(home, away, 1000);
+    const odds = footballSim.simulateMatchOdds(home, away, 1000, espnContext);
 
     const h2h = await prisma.match.findMany({
         where: {
@@ -743,12 +874,20 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 const awayStr = await calculateTeamStrength(away.id);
                 home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
                 away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
-                home.form = await calculateFormFactor(home.id);
-                away.form = await calculateFormFactor(away.id);
+
+                // ESPN calibration (loaded per match, cached internally by espnService)
+                const [homeEspn, awayEspn] = await Promise.all([
+                    getEspnEnrichedTeamData(home.id),
+                    getEspnEnrichedTeamData(away.id),
+                ]);
+                const espnContext = buildEspnSimContext(homeEspn, awayEspn);
+
+                home.form = await calculateFormFactor(home.id, homeEspn);
+                away.form = await calculateFormFactor(away.id, awayEspn);
                 home.power = await db.getTeamPower(home.id);
                 away.power = await db.getTeamPower(away.id);
 
-                const res = footballSim.simulateMatch(home, away);
+                const res = footballSim.simulateMatch(home, away, espnContext);
 
                 await tx.match.update({
                     where: { id: m.id },
@@ -869,10 +1008,12 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
 
     const teamsWithForm = await Promise.all(teams.map(async t => {
         const str = await calculateTeamStrength(t.id);
+        const _espn = await getEspnEnrichedTeamData(t.id);
         return {
             ...t,
             att: str.att, mid: str.mid, def: str.def,
-            form: await calculateFormFactor(t.id)
+            form: await calculateFormFactor(t.id, _espn),
+            _espn,
         };
     }));
 
@@ -900,7 +1041,8 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
         for (const m of matchups) {
             m.home.power = await db.getTeamPower(m.home.id);
             m.away.power = await db.getTeamPower(m.away.id);
-            const res = footballSim.simulateMatch(m.home, m.away);
+            const espnCtx = buildEspnSimContext(m.home._espn, m.away._espn);
+            const res = footballSim.simulateMatch(m.home, m.away, espnCtx);
 
             const createdMatch = await tx.match.create({
                 data: {
@@ -1045,7 +1187,8 @@ ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
     const enrichTeam = async (t) => {
         const str = await calculateTeamStrength(t.id);
         t.att = str.att; t.mid = str.mid; t.def = str.def;
-        t.form = await calculateFormFactor(t.id);
+        t._espn = await getEspnEnrichedTeamData(t.id);
+        t.form = await calculateFormFactor(t.id, t._espn);
         t.power = await db.getTeamPower(t.id);
         return t;
     };
@@ -1060,8 +1203,9 @@ ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
             for (let i = 0; i < 8; i++) {
                 const home = await enrichTeam({ ...playoffTeams[i] });
                 const away = await enrichTeam({ ...playoffTeams[15 - i] });
-                const leg1 = footballSim.simulateMatch(home, away);
-                const leg2 = footballSim.simulateMatch(away, home);
+                const espnCtx = buildEspnSimContext(home._espn, away._espn);
+                const leg1 = footballSim.simulateMatch(home, away, espnCtx);
+                const leg2 = footballSim.simulateMatch(away, home, espnCtx);
                 const tie = footballSim.simulateKnockoutTie(
                     { homeGoals: leg1.homeGoals, awayGoals: leg1.awayGoals, homeId: home.id, awayId: away.id },
                     { homeGoals: leg2.homeGoals, awayGoals: leg2.awayGoals, homeId: away.id, awayId: home.id },
@@ -1111,7 +1255,8 @@ ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
             for (const p of r16Pairs) {
                 const home = await enrichTeam({ ...p.home });
                 const away = await enrichTeam({ ...p.away });
-                const res = footballSim.simulateMatch(home, away);
+                const espnCtx = buildEspnSimContext(home._espn, away._espn);
+                const res = footballSim.simulateMatch(home, away, espnCtx);
                 await tx.match.create({
                     data: {
                         leagueId: lid,
@@ -1149,7 +1294,8 @@ ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
             for (const p of qfPairs) {
                 const home = await enrichTeam({ ...p.home });
                 const away = await enrichTeam({ ...p.away });
-                const res = footballSim.simulateMatch(home, away);
+                const espnCtx = buildEspnSimContext(home._espn, away._espn);
+                const res = footballSim.simulateMatch(home, away, espnCtx);
                 await tx.match.create({
                     data: {
                         leagueId: lid,
@@ -1185,7 +1331,8 @@ ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
             for (const p of sfPairs) {
                 const home = await enrichTeam({ ...p.home });
                 const away = await enrichTeam({ ...p.away });
-                const res = footballSim.simulateMatch(home, away);
+                const espnCtx = buildEspnSimContext(home._espn, away._espn);
+                const res = footballSim.simulateMatch(home, away, espnCtx);
                 await tx.match.create({
                     data: {
                         leagueId: lid,
@@ -1213,7 +1360,8 @@ ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
 
         const home = await enrichTeam({ ...win0 });
         const away = await enrichTeam({ ...win1 });
-        const res = footballSim.simulateMatch(home, away);
+        const espnCtx = buildEspnSimContext(home._espn, away._espn);
+        const res = footballSim.simulateMatch(home, away, espnCtx);
 
         await prisma.match.create({
             data: {
@@ -1275,15 +1423,22 @@ ipcMain.handle('simulate-match', async (event, { homeId, awayId }) => {
 
     if (!home || !away) throw new Error("Teams not found");
 
-    home.form = await calculateFormFactor(homeId);
-    away.form = await calculateFormFactor(awayId);
+    // ESPN calibration
+    const [homeEspn, awayEspn] = await Promise.all([
+        getEspnEnrichedTeamData(homeId),
+        getEspnEnrichedTeamData(awayId),
+    ]);
+    const espnContext = buildEspnSimContext(homeEspn, awayEspn);
+
+    home.form = await calculateFormFactor(homeId, homeEspn);
+    away.form = await calculateFormFactor(awayId, awayEspn);
 
     const homeStr = await calculateTeamStrength(homeId);
     const awayStr = await calculateTeamStrength(awayId);
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
-    return footballSim.simulateMatch(home, away);
+    return footballSim.simulateMatch(home, away, espnContext);
 });
 
 ipcMain.handle('simulate-single-match', async (event, { matchId }) => {
@@ -1303,12 +1458,20 @@ ipcMain.handle('simulate-single-match', async (event, { matchId }) => {
     const awayStr = await calculateTeamStrength(away.id);
     home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
-    home.form = await calculateFormFactor(home.id);
-    away.form = await calculateFormFactor(away.id);
+
+    // ESPN calibration
+    const [homeEspn, awayEspn] = await Promise.all([
+        getEspnEnrichedTeamData(home.id),
+        getEspnEnrichedTeamData(away.id),
+    ]);
+    const espnContext = buildEspnSimContext(homeEspn, awayEspn);
+
+    home.form = await calculateFormFactor(home.id, homeEspn);
+    away.form = await calculateFormFactor(away.id, awayEspn);
     home.power = await db.getTeamPower(home.id);
     away.power = await db.getTeamPower(away.id);
 
-    const res = footballSim.simulateMatch(home, away);
+    const res = footballSim.simulateMatch(home, away, espnContext);
     const leagueId = match.leagueId;
     const groupName = TOURNAMENT_LEAGUE_IDS.includes(leagueId) ? 'League Phase' : 'League';
 
@@ -1462,9 +1625,50 @@ ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
             injuryText = `${home.name}: ${homeInjuries.join(', ') || 'Keine'}; ${away.name}: ${awayInjuries.join(', ') || 'Keine'}`;
         }
 
+        // ── Load ESPN Real-World Data for AI Context ──
+        const [homeEspn, awayEspn] = await Promise.all([
+            getEspnEnrichedTeamData(homeId),
+            getEspnEnrichedTeamData(awayId),
+        ]);
+
+        // Try to find current ESPN scores for this matchup (for live odds / H2H)
+        let espnMatchOdds = [];
+        let espnH2h = [];
+        try {
+            if (homeEspn?.leagueCode) {
+                const scores = await espnService.getScores(homeEspn.leagueCode);
+                // Find the event matching this matchup
+                const espnMatch = scores.find(s => {
+                    const homeMatch = s.homeTeam?.internalId === homeId || s.awayTeam?.internalId === homeId;
+                    const awayMatch = s.homeTeam?.internalId === awayId || s.awayTeam?.internalId === awayId;
+                    return homeMatch && awayMatch;
+                });
+                if (espnMatch?.id) {
+                    const summary = await espnService.getMatchSummary(homeEspn.leagueCode, espnMatch.id);
+                    if (summary) {
+                        espnMatchOdds = summary.odds || [];
+                        espnH2h = summary.h2h || [];
+                    }
+                }
+            }
+        } catch (e) {
+            console.log('[ESPN] Could not load match odds/h2h for AI:', e.message);
+        }
+
+        const espnAiContext = {
+            homeStanding: homeEspn?.standing || null,
+            awayStanding: awayEspn?.standing || null,
+            homeForm: homeEspn?.form || '',
+            awayForm: awayEspn?.form || '',
+            homeRecentResults: homeEspn?.recentResults || [],
+            awayRecentResults: awayEspn?.recentResults || [],
+            h2h: espnH2h,
+            odds: espnMatchOdds,
+        };
+
         const context = {
             home, away, odds, homeDetails, awayDetails, h2h, injuries: injuryText,
-            standings, topPlayers
+            standings, topPlayers, espn: espnAiContext,
         };
 
         const webContents = event.sender;
@@ -1495,4 +1699,100 @@ ipcMain.handle('simulate-f1-race', async (event, trackId) => {
     }));
 
     return f1Sim.simulateRace(track, driversWithCars);
+});
+
+// ── ESPN API Handlers ──
+ipcMain.handle('espn-get-news', async (event, league) => {
+    try {
+        if (league) return await espnService.getNews(league);
+        return await espnService.getAllNews();
+    } catch (e) {
+        console.error('ESPN News Error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('espn-get-scores', async (event, league) => {
+    try {
+        if (league) return await espnService.getScores(league);
+        return await espnService.getAllScores();
+    } catch (e) {
+        console.error('ESPN Scores Error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('espn-get-scores-by-date', async (event, { league, date }) => {
+    try {
+        return await espnService.getScoresByDate(league, date);
+    } catch (e) {
+        console.error('ESPN Scores by Date Error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('espn-get-standings', async (event, league) => {
+    try {
+        return await espnService.getStandings(league);
+    } catch (e) {
+        console.error('ESPN Standings Error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('espn-get-team-schedule', async (event, { league, teamId }) => {
+    try {
+        return await espnService.getTeamSchedule(league, teamId);
+    } catch (e) {
+        console.error('ESPN Team Schedule Error:', e);
+        return { team: null, events: [] };
+    }
+});
+
+ipcMain.handle('espn-get-match-summary', async (event, { league, eventId }) => {
+    try {
+        return await espnService.getMatchSummary(league, eventId);
+    } catch (e) {
+        console.error('ESPN Match Summary Error:', e);
+        return null;
+    }
+});
+
+ipcMain.handle('espn-get-teams', async (event, league) => {
+    try {
+        return await espnService.getTeams(league);
+    } catch (e) {
+        console.error('ESPN Teams Error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('espn-get-leagues', () => {
+    return espnService.getLeagues();
+});
+
+ipcMain.handle('espn-get-league-code', (event, internalCodeOrId) => {
+    return espnService.getEspnLeagueCode(internalCodeOrId);
+});
+
+ipcMain.handle('espn-get-team-id', (event, internalId) => {
+    return espnService.getEspnTeamId(internalId);
+});
+
+ipcMain.handle('espn-sync-logos', async () => {
+    try {
+        const count = await dataFetcher.updateTeamLogosFromEspn();
+        return { success: true, count };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('espn-sync-standings', async () => {
+    try {
+        const count = await dataFetcher.syncStandingsFromEspn();
+        return { success: true, count };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 });

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit, Target, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit, Target, AlertCircle, Globe, Clock, Zap } from 'lucide-react';
+import type { EspnStandingEntry, EspnScore, EspnMatchSummary } from '../../../types/electron';
 
 // Form Dot Component
 const FormDot = ({ result }: { result: string }) => {
@@ -42,7 +43,7 @@ export default function LeaguePageClient() {
     const [loading, setLoading] = useState(true);
     const [noElectron, setNoElectron] = useState(false);
     const [simulating, setSimulating] = useState(false);
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures' | 'espn-standings' | 'espn-fixtures' | 'espn-match'>('dashboard');
     const [activeGroup, setActiveGroup] = useState<string | null>(null);
     const [fixtures, setFixtures] = useState<any[]>([]);
     const [loadingOdds, setLoadingOdds] = useState(false);
@@ -60,6 +61,15 @@ export default function LeaguePageClient() {
     const [aiProgress, setAiProgress] = useState<{ progress: number; step: string } | null>(null);
     const [aiError, setAiError] = useState<string | null>(null);
     const [setupComplete, setSetupComplete] = useState(false);
+
+    // ESPN Real Data
+    const [espnLeagueCode, setEspnLeagueCode] = useState<string | null>(null);
+    const [espnStandings, setEspnStandings] = useState<EspnStandingEntry[]>([]);
+    const [espnScores, setEspnScores] = useState<EspnScore[]>([]);
+    const [loadingEspn, setLoadingEspn] = useState(false);
+    const [espnMatchDetail, setEspnMatchDetail] = useState<EspnMatchSummary | null>(null);
+    const [espnMatchDetailEvent, setEspnMatchDetailEvent] = useState<EspnScore | null>(null);
+    const [loadingMatchDetail, setLoadingMatchDetail] = useState(false);
 
     useEffect(() => {
         if (leagueId) loadData();
@@ -88,6 +98,66 @@ export default function LeaguePageClient() {
             setLoading(false);
         }
     };
+
+    // ESPN data loading
+    const loadEspnLeagueCode = useCallback(async () => {
+        if (!window.electron || espnLeagueCode) return espnLeagueCode;
+        const code = await window.electron.espnGetLeagueCode(parseInt(leagueId as string));
+        if (code) setEspnLeagueCode(code);
+        return code;
+    }, [leagueId, espnLeagueCode]);
+
+    const loadEspnStandings = useCallback(async () => {
+        if (!window.electron) return;
+        setLoadingEspn(true);
+        try {
+            const code = espnLeagueCode || await loadEspnLeagueCode();
+            if (!code) return;
+            const data = await window.electron.espnGetStandings(code);
+            setEspnStandings(data);
+        } catch (e) { console.error('ESPN standings error:', e); }
+        finally { setLoadingEspn(false); }
+    }, [espnLeagueCode, loadEspnLeagueCode]);
+
+    const loadEspnScores = useCallback(async () => {
+        if (!window.electron) return;
+        setLoadingEspn(true);
+        try {
+            const code = espnLeagueCode || await loadEspnLeagueCode();
+            if (!code) return;
+            const data = await window.electron.espnGetScores(code);
+            setEspnScores(data);
+        } catch (e) { console.error('ESPN scores error:', e); }
+        finally { setLoadingEspn(false); }
+    }, [espnLeagueCode, loadEspnLeagueCode]);
+
+    const loadEspnMatchDetail = useCallback(async (event: EspnScore) => {
+        if (!window.electron) return;
+        setLoadingMatchDetail(true);
+        setEspnMatchDetailEvent(event);
+        setEspnMatchDetail(null);
+        setActiveTab('espn-match');
+        try {
+            const code = espnLeagueCode || await loadEspnLeagueCode();
+            if (!code) return;
+            const data = await window.electron.espnGetMatchSummary(code, event.id);
+            setEspnMatchDetail(data);
+        } catch (e) { console.error('ESPN match detail error:', e); }
+        finally { setLoadingMatchDetail(false); }
+    }, [espnLeagueCode, loadEspnLeagueCode]);
+
+    // Auto-load ESPN data when switching to ESPN tabs
+    useEffect(() => {
+        if (activeTab === 'espn-standings' && espnStandings.length === 0) loadEspnStandings();
+        if (activeTab === 'espn-fixtures' && espnScores.length === 0) loadEspnScores();
+    }, [activeTab]);
+
+    // Auto-refresh ESPN scores every 30s
+    useEffect(() => {
+        if (activeTab !== 'espn-fixtures') return;
+        const iv = setInterval(loadEspnScores, 30000);
+        return () => clearInterval(iv);
+    }, [activeTab, loadEspnScores]);
 
     const loadFixtures = async (lid: string, matchday?: number) => {
         setLoadingOdds(false);
@@ -285,15 +355,22 @@ export default function LeaguePageClient() {
                     </h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="flex bg-black/40 rounded-xl p-1 text-sm border border-white/5 backdrop-blur-md">
+                    <div className="flex bg-black/40 rounded-xl p-1 text-sm border border-white/5 backdrop-blur-md flex-wrap">
                         <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
                             <Activity size={16} /> Dashboard
                         </button>
                         <button onClick={() => setActiveTab('standings')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'standings' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                            <Trophy size={16} /> Table
+                            <Trophy size={16} /> Sim Table
                         </button>
                         <button onClick={() => setActiveTab('fixtures')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'fixtures' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                            <Calendar size={16} /> Matches
+                            <Calendar size={16} /> Sim Matches
+                        </button>
+                        <div className="w-px bg-white/10 mx-1 self-stretch" />
+                        <button onClick={() => setActiveTab('espn-standings')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'espn-standings' ? 'bg-emerald-600/30 text-emerald-400 shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                            <Globe size={16} /> Real Table
+                        </button>
+                        <button onClick={() => setActiveTab('espn-fixtures')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'espn-fixtures' ? 'bg-emerald-600/30 text-emerald-400 shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                            <Zap size={16} /> Real Matches
                         </button>
                     </div>
                     <button onClick={runSimulate} disabled={simulating} className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-xl font-bold text-white text-sm shadow-lg shadow-emerald-900/20 transition-all disabled:opacity-50 flex items-center gap-2 border border-emerald-500/20">
@@ -593,6 +670,429 @@ export default function LeaguePageClient() {
                             </div>
                         ))}
                     </div>
+                </div>
+            )}
+
+            {/* ESPN Real Standings */}
+            {activeTab === 'espn-standings' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <Globe size={18} className="text-emerald-400" />
+                            <h2 className="text-lg font-bold text-white">Real-World Standings</h2>
+                            <span className="text-[10px] text-slate-500 bg-slate-800 px-2 py-0.5 rounded font-mono">ESPN LIVE</span>
+                        </div>
+                        <button onClick={loadEspnStandings} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50">
+                            <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
+                        </button>
+                    </div>
+                    {loadingEspn && espnStandings.length === 0 ? (
+                        <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
+                            <RefreshCw className="animate-spin" size={20} /> Loading real standings...
+                        </div>
+                    ) : espnStandings.length === 0 ? (
+                        <div className="glass-card p-12 text-center text-slate-400">
+                            <Globe size={32} className="mx-auto mb-3 opacity-50" />
+                            <p>No ESPN standings available for this league.</p>
+                        </div>
+                    ) : (
+                        <div className="glass-card overflow-hidden">
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th className="w-10">#</th>
+                                        <th>Team</th>
+                                        <th className="text-center">MP</th>
+                                        <th className="text-center">W</th>
+                                        <th className="text-center">D</th>
+                                        <th className="text-center">L</th>
+                                        <th className="text-center">GF</th>
+                                        <th className="text-center">GA</th>
+                                        <th className="text-center">GD</th>
+                                        <th className="text-center">Pts</th>
+                                        <th className="text-center">PPG</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {espnStandings.map((entry, i) => {
+                                        const noteColor = entry.note?.color ? `#${entry.note.color}` : undefined;
+                                        return (
+                                            <tr key={entry.espnId || i} className="group">
+                                                <td className="font-mono text-slate-500 relative">
+                                                    {noteColor && <div className="absolute left-0 top-1 bottom-1 w-1 rounded-r" style={{ backgroundColor: noteColor }} />}
+                                                    <span className="pl-2">{entry.rank || i + 1}</span>
+                                                </td>
+                                                <td className="font-semibold flex items-center gap-3">
+                                                    <div className="w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                        {entry.logo ? <img src={entry.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                                    </div>
+                                                    {entry.internalId ? (
+                                                        <a href={`/football/team/${entry.internalId}`} className="text-slate-100 truncate hover:text-emerald-400 transition-colors">
+                                                            {entry.team}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-slate-100 truncate">{entry.team}</span>
+                                                    )}
+                                                    {entry.note && (
+                                                        <span className="text-[9px] px-1.5 py-0.5 rounded border font-bold hidden md:inline-block" style={{ borderColor: noteColor, color: noteColor }}>
+                                                            {entry.note.description?.split(' -')[0] || ''}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="text-center text-slate-400 font-mono">{entry.played}</td>
+                                                <td className="text-center text-slate-400 font-mono">{entry.wins}</td>
+                                                <td className="text-center text-slate-400 font-mono">{entry.draws}</td>
+                                                <td className="text-center text-slate-400 font-mono">{entry.losses}</td>
+                                                <td className="text-center text-slate-400 font-mono">{entry.goalsFor}</td>
+                                                <td className="text-center text-slate-400 font-mono">{entry.goalsAgainst}</td>
+                                                <td className={`text-center font-mono font-medium ${entry.goalDifference > 0 ? 'text-emerald-400' : entry.goalDifference < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                                                    {entry.goalDifference > 0 ? `+${entry.goalDifference}` : entry.goalDifference}
+                                                </td>
+                                                <td className="text-center font-bold text-white font-mono">{entry.points}</td>
+                                                <td className="text-center font-mono text-slate-400">{entry.ppg?.toFixed(2) || '-'}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                            <div className="px-4 py-3 border-t border-white/5 flex items-center justify-between">
+                                <p className="text-[10px] text-slate-600">Data from ESPN • Updates every 5 minutes</p>
+                                {espnStandings.some(e => e.note) && (
+                                    <div className="flex gap-3">
+                                        {Array.from(new Set(espnStandings.filter(e => e.note).map(e => JSON.stringify(e.note)))).map((ns, i) => {
+                                            const n = JSON.parse(ns);
+                                            return (
+                                                <span key={i} className="text-[9px] flex items-center gap-1">
+                                                    <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: `#${n.color}` }} />
+                                                    <span className="text-slate-500">{n.description?.split(' -')[0] || ''}</span>
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ESPN Real Fixtures */}
+            {activeTab === 'espn-fixtures' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <Zap size={18} className="text-amber-400" />
+                            <h2 className="text-lg font-bold text-white">Real Matches</h2>
+                            <span className="text-[10px] text-slate-500 bg-slate-800 px-2 py-0.5 rounded font-mono">ESPN LIVE</span>
+                        </div>
+                        <button onClick={loadEspnScores} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50">
+                            <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
+                        </button>
+                    </div>
+                    {loadingEspn && espnScores.length === 0 ? (
+                        <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
+                            <RefreshCw className="animate-spin" size={20} /> Loading real matches...
+                        </div>
+                    ) : espnScores.length === 0 ? (
+                        <div className="glass-card p-12 text-center text-slate-400">
+                            <Calendar size={32} className="mx-auto mb-3 opacity-50" />
+                            <p>No upcoming or recent matches found.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            {/* Live Matches */}
+                            {espnScores.filter(s => s.isLive).length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Live
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {espnScores.filter(s => s.isLive).map(score => (
+                                            <button key={score.id} onClick={() => loadEspnMatchDetail(score)} className="glass-card p-4 border-emerald-500/20 bg-emerald-500/[0.03] text-left hover:border-emerald-500/40 transition-all">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-[10px] font-mono font-bold text-emerald-400 flex items-center gap-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                        {score.clock}
+                                                    </span>
+                                                    {score.venue && <span className="text-[10px] text-slate-600 truncate max-w-[120px]">{score.venue}</span>}
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                        {score.home.logo && <img src={score.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        <span className="text-sm font-bold text-white truncate">{score.home.name}</span>
+                                                    </div>
+                                                    <div className="px-4 py-1 bg-black/40 rounded-lg flex-shrink-0 mx-2">
+                                                        <span className="font-mono font-black text-lg text-emerald-400">{score.home.score} - {score.away.score}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                        <span className="text-sm font-bold text-white truncate">{score.away.name}</span>
+                                                        {score.away.logo && <img src={score.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Completed Matches */}
+                            {espnScores.filter(s => s.isCompleted).length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <Trophy size={14} /> Results
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {espnScores.filter(s => s.isCompleted).map(score => (
+                                            <button key={score.id} onClick={() => loadEspnMatchDetail(score)} className="glass-card p-4 text-left hover:border-white/20 transition-all">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-[10px] font-bold text-slate-600">FT</span>
+                                                    <span className="text-[10px] text-slate-600">{new Date(score.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                        {score.home.logo && <img src={score.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        <span className={`text-sm font-medium truncate ${score.home.winner ? 'text-white font-bold' : 'text-slate-400'}`}>{score.home.name}</span>
+                                                    </div>
+                                                    <div className="px-3 flex-shrink-0 mx-2">
+                                                        <span className="font-mono font-bold text-white">{score.home.score} - {score.away.score}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                        <span className={`text-sm font-medium truncate ${score.away.winner ? 'text-white font-bold' : 'text-slate-400'}`}>{score.away.name}</span>
+                                                        {score.away.logo && <img src={score.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Scheduled Matches */}
+                            {espnScores.filter(s => s.statusState === 'pre').length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <Clock size={14} /> Upcoming
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {espnScores.filter(s => s.statusState === 'pre').map(score => (
+                                            <div key={score.id} className="glass-card p-4">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                        {new Date(score.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-500 font-mono">
+                                                        {new Date(score.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                        {score.home.logo && <img src={score.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        <span className="text-sm font-bold text-white truncate">{score.home.name}</span>
+                                                    </div>
+                                                    <span className="text-slate-600 text-xs mx-3 flex-shrink-0">vs</span>
+                                                    <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                        <span className="text-sm font-bold text-white truncate">{score.away.name}</span>
+                                                        {score.away.logo && <img src={score.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                    </div>
+                                                </div>
+                                                {score.venue && <div className="mt-2 text-[10px] text-slate-600 truncate">{score.venue}</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            <p className="text-[10px] text-slate-600 text-center">Data from ESPN • Auto-refreshes every 30 seconds</p>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ESPN Match Detail */}
+            {activeTab === 'espn-match' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <button onClick={() => setActiveTab('espn-fixtures')} className="text-slate-400 hover:text-white flex items-center gap-2 mb-4 text-sm transition-colors">
+                        <ArrowLeft size={14} /> Back to Matches
+                    </button>
+                    {espnMatchDetailEvent && (
+                        <div className="glass-card p-6 mb-6">
+                            <div className="flex items-center justify-between mb-4">
+                                {espnMatchDetailEvent.isLive && (
+                                    <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                        {espnMatchDetailEvent.clock}
+                                    </span>
+                                )}
+                                {espnMatchDetailEvent.isCompleted && <span className="text-xs font-bold text-slate-500">Full Time</span>}
+                                {espnMatchDetailEvent.venue && <span className="text-xs text-slate-500">{espnMatchDetailEvent.venue}</span>}
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col items-center gap-2 flex-1">
+                                    {espnMatchDetailEvent.home.logo && <img src={espnMatchDetailEvent.home.logo} className="w-14 h-14 object-contain" alt="" />}
+                                    <span className="text-lg font-black text-white">{espnMatchDetailEvent.home.name}</span>
+                                </div>
+                                <div className="px-6 py-3 bg-black/40 rounded-xl">
+                                    <span className={`font-mono font-black text-3xl ${espnMatchDetailEvent.isLive ? 'text-emerald-400' : 'text-white'}`}>
+                                        {espnMatchDetailEvent.home.score} - {espnMatchDetailEvent.away.score}
+                                    </span>
+                                </div>
+                                <div className="flex flex-col items-center gap-2 flex-1">
+                                    {espnMatchDetailEvent.away.logo && <img src={espnMatchDetailEvent.away.logo} className="w-14 h-14 object-contain" alt="" />}
+                                    <span className="text-lg font-black text-white">{espnMatchDetailEvent.away.name}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {loadingMatchDetail ? (
+                        <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
+                            <RefreshCw className="animate-spin" size={20} /> Loading match details...
+                        </div>
+                    ) : espnMatchDetail ? (
+                        <div className="space-y-6">
+                            {/* Key Events */}
+                            {espnMatchDetail.keyEvents.length > 0 && (
+                                <div className="glass-card p-5">
+                                    <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                        <Zap size={14} className="text-amber-400" /> Key Events
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {espnMatchDetail.keyEvents.map((ev, i) => (
+                                            <div key={ev.id || i} className="flex items-start gap-3">
+                                                <span className="text-xs font-mono text-slate-500 w-10 text-right flex-shrink-0 pt-0.5">{ev.minute || '-'}</span>
+                                                <div className="flex-shrink-0 mt-1">
+                                                    {ev.isGoal ? <span className="text-lg">⚽</span> : ev.type === 'yellowCard' || ev.typeName?.includes('Yellow') ? <span className="text-lg">🟨</span> : ev.type === 'redCard' || ev.typeName?.includes('Red') ? <span className="text-lg">🟥</span> : <span className="text-lg">📋</span>}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className={`text-sm font-medium ${ev.isGoal ? 'text-emerald-400' : 'text-slate-300'}`}>
+                                                        {ev.player || ev.shortText || ev.text}
+                                                    </p>
+                                                    {ev.team && <p className="text-[10px] text-slate-500">{ev.team.name}</p>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Boxscore Stats */}
+                            {espnMatchDetail.boxscore.length === 2 && (
+                                <div className="glass-card p-5">
+                                    <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                        <BarChart3 size={14} className="text-sky-400" /> Match Statistics
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {Object.keys(espnMatchDetail.boxscore[0].stats).filter(k => espnMatchDetail.boxscore[1].stats[k]).map(statName => {
+                                            const home = espnMatchDetail!.boxscore[0].stats[statName];
+                                            const away = espnMatchDetail!.boxscore[1].stats[statName];
+                                            const hVal = parseFloat(home) || 0;
+                                            const aVal = parseFloat(away) || 0;
+                                            const total = hVal + aVal || 1;
+                                            const label = statName.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+                                            return (
+                                                <div key={statName}>
+                                                    <div className="flex items-center justify-between text-xs mb-1">
+                                                        <span className="text-slate-300 font-mono">{home}</span>
+                                                        <span className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</span>
+                                                        <span className="text-slate-300 font-mono">{away}</span>
+                                                    </div>
+                                                    <div className="flex gap-1 h-1.5">
+                                                        <div className="flex-1 bg-slate-800 rounded-full overflow-hidden flex justify-end">
+                                                            <div className="bg-sky-500 rounded-full" style={{ width: `${(hVal / total) * 100}%` }} />
+                                                        </div>
+                                                        <div className="flex-1 bg-slate-800 rounded-full overflow-hidden">
+                                                            <div className="bg-rose-500 rounded-full" style={{ width: `${(aVal / total) * 100}%` }} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Lineups */}
+                            {espnMatchDetail.rosters.length > 0 && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {espnMatchDetail.rosters.map((roster, ri) => (
+                                        <div key={ri} className="glass-card p-5">
+                                            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                                {roster.logo && <img src={roster.logo} className="w-4 h-4 object-contain" alt="" />}
+                                                {roster.name}
+                                            </h3>
+                                            <div className="space-y-1">
+                                                {roster.players.filter(p => p.starter).length > 0 && (
+                                                    <>
+                                                        <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-2 font-bold">Starting XI</div>
+                                                        {roster.players.filter(p => p.starter).map((p, pi) => (
+                                                            <div key={pi} className="flex items-center gap-2 text-xs py-0.5">
+                                                                <span className="text-slate-600 font-mono w-5 text-right">{p.jersey}</span>
+                                                                <span className="text-slate-300 flex-1">{p.name}</span>
+                                                                <span className="text-slate-600 text-[10px]">{p.position}</span>
+                                                            </div>
+                                                        ))}
+                                                    </>
+                                                )}
+                                                {roster.players.filter(p => !p.starter).length > 0 && (
+                                                    <>
+                                                        <div className="text-[10px] text-slate-600 uppercase tracking-wider mt-3 mb-2 font-bold border-t border-white/5 pt-2">Substitutes</div>
+                                                        {roster.players.filter(p => !p.starter).map((p, pi) => (
+                                                            <div key={pi} className="flex items-center gap-2 text-xs py-0.5 opacity-60">
+                                                                <span className="text-slate-600 font-mono w-5 text-right">{p.jersey}</span>
+                                                                <span className="text-slate-400 flex-1">{p.name}</span>
+                                                                <span className="text-slate-700 text-[10px]">{p.position}</span>
+                                                            </div>
+                                                        ))}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Odds */}
+                            {espnMatchDetail.odds.length > 0 && (
+                                <div className="glass-card p-5">
+                                    <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <Target size={14} className="text-amber-400" /> Betting Odds
+                                    </h3>
+                                    <div className="space-y-2">
+                                        {espnMatchDetail.odds.map((o, oi) => (
+                                            <div key={oi} className="flex items-center justify-between text-sm bg-slate-800/50 rounded-lg p-3">
+                                                <span className="text-slate-400 text-xs">{o.provider}</span>
+                                                <div className="flex gap-4 font-mono text-xs">
+                                                    {o.details && <span className="text-white">{o.details}</span>}
+                                                    {o.overUnder > 0 && <span className="text-slate-400">O/U: {o.overUnder}</span>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* H2H */}
+                            {espnMatchDetail.h2h.length > 0 && (
+                                <div className="glass-card p-5">
+                                    <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3">Head to Head</h3>
+                                    <div className="space-y-2">
+                                        {espnMatchDetail.h2h.slice(0, 5).map((g, gi) => (
+                                            <div key={gi} className="flex items-center justify-between text-xs bg-slate-800/30 rounded p-2">
+                                                <span className="text-slate-500 font-mono">{new Date(g.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+                                                <span className="text-slate-300 font-mono font-bold">{g.score}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <p className="text-[10px] text-slate-600 text-center">Match data from ESPN</p>
+                        </div>
+                    ) : (
+                        <div className="glass-card p-12 text-center text-slate-400">
+                            <BarChart3 size={32} className="mx-auto mb-3 opacity-50" />
+                            <p>Match details not available yet.</p>
+                        </div>
+                    )}
                 </div>
             )}
 

@@ -1083,6 +1083,89 @@ async function fetchAllKickerSquads() {
     return allSquads;
 }
 
+// ── ESPN Data Enhancement ────────────────────────────
+// Updates team logos and enriches data using ESPN's free API
+
+const espnService = require('./espn_service');
+
+async function updateTeamLogosFromEspn() {
+    console.log("[ESPN] Updating team logos from ESPN...");
+    const leagues = espnService.getLeagues().filter(l => l.internalCode !== 'CL' && l.internalCode !== 'EL');
+    let updated = 0;
+
+    for (const league of leagues) {
+        try {
+            const teams = await espnService.getTeams(league.code);
+            for (const team of teams) {
+                if (team.internalId && team.logo) {
+                    await prisma.team.updateMany({
+                        where: { id: team.internalId },
+                        data: { logo: team.logo }
+                    });
+                    updated++;
+                }
+            }
+        } catch (e) {
+            console.error(`[ESPN] Logo update error for ${league.code}:`, e.message);
+        }
+    }
+    console.log(`[ESPN] Updated ${updated} team logos.`);
+    return updated;
+}
+
+async function syncStandingsFromEspn() {
+    console.log("[ESPN] Syncing real standings from ESPN...");
+    const leagues = espnService.getLeagues().filter(l => !['uefa.champions', 'uefa.europa'].includes(l.code));
+    let synced = 0;
+
+    for (const league of leagues) {
+        try {
+            const standings = await espnService.getStandings(league.code);
+            for (const entry of standings) {
+                if (!entry.internalId) continue;
+                await prisma.standing.upsert({
+                    where: {
+                        leagueId_teamId_season_groupName: {
+                            leagueId: league.internalId,
+                            teamId: entry.internalId,
+                            season: CURRENT_SEASON_STR,
+                            groupName: 'League'
+                        }
+                    },
+                    update: {
+                        played: entry.played,
+                        wins: entry.wins,
+                        draws: entry.draws,
+                        losses: entry.losses,
+                        gf: entry.goalsFor,
+                        ga: entry.goalsAgainst,
+                        points: entry.points,
+                    },
+                    create: {
+                        leagueId: league.internalId,
+                        teamId: entry.internalId,
+                        season: CURRENT_SEASON_STR,
+                        groupName: 'League',
+                        played: entry.played,
+                        wins: entry.wins,
+                        draws: entry.draws,
+                        losses: entry.losses,
+                        gf: entry.goalsFor,
+                        ga: entry.goalsAgainst,
+                        points: entry.points,
+                    }
+                });
+                synced++;
+            }
+            console.log(`[ESPN] Synced ${standings.length} standings for ${league.name}`);
+        } catch (e) {
+            console.error(`[ESPN] Standings sync error for ${league.code}:`, e.message);
+        }
+    }
+    console.log(`[ESPN] Total standings synced: ${synced}`);
+    return synced;
+}
+
 module.exports = {
     updateAllData,
     fetchFootballData,
@@ -1092,7 +1175,9 @@ module.exports = {
     marketValueToRating,
     fetchKickerSquad,
     fetchAllKickerSquads,
-    kickerNoteToRating
+    kickerNoteToRating,
+    updateTeamLogosFromEspn,
+    syncStandingsFromEspn
 };
 
 if (require.main === module) {
