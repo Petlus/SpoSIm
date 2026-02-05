@@ -1,18 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 
-const dbPath = path.join(__dirname, '../data/sports.db');
+const dataDir = path.join(__dirname, '../data');
+const dbFiles = ['sports.db', 'sports.db-shm', 'sports.db-wal'];
 
 try {
-    if (fs.existsSync(dbPath)) {
-        console.log(`Deleting ${dbPath}...`);
-        fs.unlinkSync(dbPath);
-        console.log("Database deleted successfully.");
-    } else {
-        console.log("Database file not found, nothing to delete.");
+    for (const file of dbFiles) {
+        const filePath = path.join(dataDir, file);
+        if (fs.existsSync(filePath)) {
+            console.log(`Deleting ${file}...`);
+            fs.unlinkSync(filePath);
+            console.log(`  ${file} deleted.`);
+        }
     }
+    console.log("Database reset complete.");
 } catch (error) {
-    console.error("Error deleting database:", error.message);
-    // If locked, we might need manual intervention or killing processes, 
-    // but usually in dev electron stops when we kill the terminal command.
+    console.error("Error resetting database:", error.message);
+    console.log("Tip: Close the Electron app if it's running.");
 }

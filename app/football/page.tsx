@@ -8,26 +8,50 @@ import { CURRENT_SEASON_STR } from '../../config/season';
 export default function FootballHome() {
     const [leagues, setLeagues] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [noElectron, setNoElectron] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        // @ts-ignore
+    const loadData = () => {
+        setError(null);
+        setLoading(true);
         if (window.electron) {
-            // @ts-ignore
             window.electron.getData('football')
                 .then((data: any) => {
                     if (data && data.leagues) {
                         setLeagues(data.leagues);
+                    } else if (data?.error) {
+                        setError(data.error);
                     }
                     setLoading(false);
                 })
                 .catch((err: any) => {
                     console.error("Failed to load football data:", err);
+                    setError(err?.message || "Failed to load data. Please try again.");
                     setLoading(false);
                 });
+        } else {
+            setLoading(false);
+            setNoElectron(true);
         }
+    };
+
+    useEffect(() => {
+        loadData();
     }, []);
 
-    if (loading) return <div className="p-10 text-slate-400 flex items-center gap-2"><Globe className="animate-spin text-emerald-400" size={16} /> Initialisiere Datenbank (25/26)...</div>;
+    if (loading) return <div className="p-10 text-slate-400 flex items-center gap-2"><Globe className="animate-spin text-emerald-400" size={16} /> Initializing database...</div>;
+    if (error) return (
+        <div className="p-10 max-w-xl mx-auto text-center">
+            <p className="text-rose-400 mb-4">{error}</p>
+            <button onClick={loadData} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-medium">Retry</button>
+        </div>
+    );
+    if (noElectron) return (
+        <div className="p-10 max-w-xl mx-auto text-center">
+            <p className="text-slate-400 mb-4">Run BetBrain in Electron to use this feature.</p>
+            <p className="text-slate-500 text-sm">Start with <code className="bg-slate-800 px-2 py-1 rounded">npm run dev</code></p>
+        </div>
+    );
 
     return (
         <div className="p-10 max-w-7xl mx-auto">
@@ -36,8 +60,8 @@ export default function FootballHome() {
                 <span>Back to BetBrain</span>
             </Link>
 
-            <h1 className="text-4xl font-bold text-white mb-2">Wähle Wettbewerb</h1>
-            <p className="text-slate-400 mb-10">Saison {CURRENT_SEASON_STR} - Wähle eine Liga oder Turnier.</p>
+            <h1 className="text-4xl font-bold text-white mb-2">Select Competition</h1>
+            <p className="text-slate-400 mb-10">Season {CURRENT_SEASON_STR} - Select a league or tournament.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {leagues.map((league: any) => {

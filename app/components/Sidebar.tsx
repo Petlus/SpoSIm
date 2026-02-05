@@ -17,9 +17,15 @@ export function Sidebar() {
     const isActive = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
 
     return (
-        <div className="flex flex-col h-full p-4">
-            <div className="flex items-center gap-3 px-2 mb-10 mt-2">
-                <img src="/logo.png" alt="BetBrain" className="w-8 h-8 rounded-lg object-contain" />
+        <div className="flex flex-col h-full p-4 backdrop-blur-xl bg-black/40 border-r border-white/5 relative">
+            {/* Glossy overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
+
+            <div className="flex items-center gap-3 px-2 mb-10 mt-2 relative z-10">
+                <div className="relative">
+                    <div className="absolute inset-0 bg-emerald-500 blur-md opacity-40"></div>
+                    <img src="/logo.png" alt="BetBrain" className="w-8 h-8 rounded-lg object-contain relative z-10" />
+                </div>
                 <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 hidden md:block">
                     BetBrain
                 </span>

@@ -54,6 +54,7 @@ export default function TournamentPage() {
     const { leagueId } = useParams();
     const [league, setLeague] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [noElectron, setNoElectron] = useState(false);
     const [activeTab, setActiveTab] = useState<'groups' | 'bracket'>('groups');
     const [bracket, setBracket] = useState<any>(null);
 
@@ -62,17 +63,18 @@ export default function TournamentPage() {
     }, [leagueId]);
 
     const loadData = async () => {
-        // @ts-ignore
         if (window.electron) {
-            // @ts-ignore
             const res = await window.electron.getData('football');
-            const l = res.leagues.find((lg: any) => lg.id.toString() === leagueId);
+            const l = (res as { leagues?: any[] }).leagues?.find((lg: any) => lg.id.toString() === leagueId);
             if (l) {
                 setLeague(l);
                 // Generate mock bracket from top teams in each group
                 generateBracket(l.teams);
             }
             setLoading(false);
+        } else {
+            setLoading(false);
+            setNoElectron(true);
         }
     };
 
@@ -117,6 +119,7 @@ export default function TournamentPage() {
     };
 
     if (loading) return <div className="p-10 text-slate-400 flex items-center gap-3"><RefreshCw className="animate-spin" size={18} /> Loading...</div>;
+    if (noElectron) return <div className="p-10 text-slate-400">Run BetBrain in Electron to use this feature.</div>;
     if (!league) return <div className="p-10 text-slate-400">Tournament not found</div>;
 
     // Group teams by group_name for display

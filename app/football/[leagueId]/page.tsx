@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit } from 'lucide-react';
+import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit, Target } from 'lucide-react';
 
 // Form Dot Component
 const FormDot = ({ result }: { result: string }) => {
@@ -24,238 +24,245 @@ const calcPowerRating = (team: any) => {
     return Math.round((ppg * 20) + (gpg * 10) - (gapg * 5) + 30);
 };
 
+// Helper to parse AI Analysis
+const parseAiAnalysis = (text: string) => {
+    const analysisMatch = text.match(/\*\*Analyse:\*\*\s*([\s\S]*?)(?=\*\*MEIN TIPP:)/i) || text.match(/Analyse:\s*([\s\S]*?)(?=MEIN TIPP:)/i);
+    const tipMatch = text.match(/\*\*MEIN TIPP:\*\*\s*([\s\S]*?)(?=\*\*BESTE WETTE:)/i) || text.match(/MEIN TIPP:\s*([\s\S]*?)(?=BESTE WETTE:)/i);
+    const betMatch = text.match(/\*\*BESTE WETTE:\*\*\s*([\s\S]*?)$/i) || text.match(/BESTE WETTE:\s*([\s\S]*?)$/i);
+
+    return {
+        analysis: analysisMatch ? analysisMatch[1].trim() : text, // Fallback to full text if parsing fails
+        tip: tipMatch ? tipMatch[1].trim() : null,
+        bet: betMatch ? betMatch[1].trim() : null
+    };
+};
+
 export default function LeaguePage() {
     const { leagueId } = useParams();
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [noElectron, setNoElectron] = useState(false);
     const [simulating, setSimulating] = useState(false);
-    const [activeTab, setActiveTab] = useState<'standings' | 'fixtures'>('standings');
-    const [activeGroup, setActiveGroup] = useState<string | null>(null);
-    const [fixtures, setFixtures] = useState<any[]>([]);
-    const [loadingOdds, setLoadingOdds] = useState(false);
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures'>('dashboard');
 
-    // Matchday navigation state
-    const [currentMatchday, setCurrentMatchday] = useState(1);
-    const [minMatchday, setMinMatchday] = useState(1);
-    const [maxMatchday, setMaxMatchday] = useState(34);
+    // ... (rest of state)
 
-    // Insights Panel State
-    const [insightsOpen, setInsightsOpen] = useState(false);
-    const [insightsData, setInsightsData] = useState<any>(null);
-    const [loadingInsights, setLoadingInsights] = useState(false);
+    // ... (loadData function)
 
-    // AI State
-    const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'unknown' | 'not_installed' | 'offline' | 'ready'>('checking');
-    const [downloadUrl, setDownloadUrl] = useState('');
-    const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-    const [thoughtProcess, setThoughtProcess] = useState<string | null>(null);
-    const [loadingAi, setLoadingAi] = useState(false);
-    const [typewriterText, setTypewriterText] = useState('');
-    const [setupComplete, setSetupComplete] = useState(false);
-
-    useEffect(() => {
-        if (leagueId) loadData();
-    }, [leagueId]);
-
-    const loadData = async () => {
-        // @ts-ignore
-        // @ts-ignore
-        if (window.electron) {
-            // Check persistence for AI Lock
-            // @ts-ignore
-            window.electron.getSetupStatus().then(settings => {
-                if (settings && settings.setupComplete) setSetupComplete(true);
-            });
-
-            // @ts-ignore
-            const res = await window.electron.getData('football');
-            const league = res.leagues.find((l: any) => l.id.toString() === leagueId);
-            if (league) {
-                const firstGroup = league.teams.length > 0 ? (league.teams[0].group || 'League') : 'League';
-                if (!activeGroup) setActiveGroup(firstGroup);
-                league.teams.sort((a: any, b: any) => b.points - a.points);
-                setData(league);
-                loadFixtures(leagueId as string);
-            }
-            setLoading(false);
-        }
-    }
-
-    const loadFixtures = async (leagueId: string, matchday?: number) => {
-        setLoadingOdds(false);
-        setFixtures([]);
-        // @ts-ignore
-        if (window.electron) {
-            // @ts-ignore
-            const result = await window.electron.getFixtures(parseInt(leagueId), matchday);
-
-            // Update matchday state
-            setCurrentMatchday(result.currentMatchday);
-            setMinMatchday(result.minMatchday);
-            setMaxMatchday(result.maxMatchday);
-
-            // Format fixtures
-            const formattedFixtures = result.matches.map((fix: any) => ({
-                home: fix.home,
-                away: fix.away,
-                matchday: fix.matchday,
-                date: fix.date ? new Date(fix.date).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'TBD',
-                odds: null,
-                loadingOdds: false
-            }));
-            setFixtures(formattedFixtures);
-        }
-    };
-
-    const predictMatch = async (index: number, homeId: number, awayId: number) => {
-        const newFixtures = [...fixtures];
-        // @ts-ignore
-        newFixtures[index].loadingOdds = true;
-        setFixtures([...newFixtures]);
-
-        // @ts-ignore
-        if (window.electron) {
-            // Artificial delay for UX
-            await new Promise(r => setTimeout(r, 600));
-            // @ts-ignore
-            const odds = await window.electron.getMatchOdds(homeId, awayId);
-            // @ts-ignore
-            newFixtures[index].odds = odds;
-        }
-        // @ts-ignore
-        newFixtures[index].loadingOdds = false;
-        setFixtures([...newFixtures]);
-    };
-
-    const goToMatchday = (day: number) => {
-        if (day >= minMatchday && day <= maxMatchday && leagueId) {
-            loadFixtures(leagueId as string, day);
-        }
-    };
-
-    const openInsights = async (home: any, away: any) => {
-        setInsightsOpen(true);
-        setLoadingInsights(true);
-        // @ts-ignore
-        if (window.electron) {
-            // @ts-ignore
-            const data = await window.electron.getAdvancedAnalysis(home.id, away.id);
-            setInsightsData(data);
-        }
-        setLoadingInsights(false);
-    };
-
-    const simulateMatchday = async () => {
-        setSimulating(true);
-        // @ts-ignore
-        await window.electron.simulateMatchday(leagueId);
-        setTimeout(() => { loadData(); setSimulating(false); }, 800);
-    };
-
-    // Typewriter effect
-    useEffect(() => {
-        if (!aiAnalysis) {
-            setTypewriterText('');
-            return;
-        }
-        let i = 0;
-        const interval = setInterval(() => {
-            setTypewriterText(aiAnalysis.substring(0, i));
-            i++;
-            if (i > aiAnalysis.length) clearInterval(interval);
-        }, 15); // Speed
-        return () => clearInterval(interval);
-    }, [aiAnalysis]);
-
-    const checkOllama = async () => {
-        setOllamaStatus('checking');
-        try {
-            // Race against a frontend timeout in case IPC hangs
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 4000));
-            // @ts-ignore
-            const result = await Promise.race([window.electron.checkOllamaStatus(), timeoutPromise]);
-
-            if (!result.installed) {
-                setOllamaStatus('not_installed');
-                setDownloadUrl(result.downloadUrl || 'https://ollama.com');
-            } else if (!result.running) {
-                setOllamaStatus('offline');
-            } else {
-                setOllamaStatus('ready');
-            }
-        } catch (error) {
-            console.error("Ollama Check Failed:", error);
-            // Fallback: Assume offline or not installed if it fails, don't leave hanging
-            setOllamaStatus('unknown'); // Or 'offline' to show start button at least
-        }
-    };
-
-    const startOllamaService = async () => {
-        setLoadingAi(true);
-        // @ts-ignore
-        await window.electron.startOllama();
-        // Check again after a delay
-        setTimeout(async () => {
-            await checkOllama();
-            setLoadingAi(false);
-        }, 3000);
-    };
-
-    const askAi = async () => {
-        if (!insightsData) return;
-        setLoadingAi(true);
-        setAiAnalysis(null);
-
-        // @ts-ignore
-        const res = await window.electron.getAiPrediction(
-            insightsData.home.id,
-            insightsData.away.id,
-            insightsData.odds // Pass the Odds!
-        );
-
-        setLoadingAi(false);
-        if (res.success) {
-            // Parse <think> tags
-            const thinkMatch = res.text.match(/<think>([\s\S]*?)<\/think>/);
-            const thought = thinkMatch ? thinkMatch[1].trim() : null;
-            const cleanText = res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-
-            setAiAnalysis(cleanText);
-            setThoughtProcess(thought);
-        } else {
-            setAiAnalysis(`Error: ${res.error || "Unknown AI Error. Check Console."}`);
-        }
-    };
+    // ... (helper functions)
 
     if (loading) return <div className="p-10 text-slate-400 flex items-center gap-3"><RefreshCw className="animate-spin" size={18} /> Loading...</div>;
+    if (noElectron) return <div className="p-10 text-slate-400">Run BetBrain in Electron to use this feature. Start with <code className="bg-slate-800 px-2 py-1 rounded">npm run dev</code></div>;
     if (!data) return <div className="p-10 text-slate-400">League not found</div>;
 
     const uniqueGroups = Array.from(new Set(data.teams.map((t: any) => t.group || 'League')));
     const filteredTeams = data.teams.filter((t: any) => (t.group || 'League') === activeGroup);
 
+    // Dashboard Hero Widget
+    const HeroMatchCard = ({ fixture }: { fixture: any }) => {
+        if (!fixture) return (
+            <div className="col-span-1 md:col-span-2 lg:col-span-2 row-span-2 glass-card p-8 flex flex-col items-center justify-center text-center relative overflow-hidden group">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/20 to-transparent"></div>
+                <Calendar size={48} className="text-slate-600 mb-4 group-hover:scale-110 transition-transform duration-500" />
+                <h3 className="text-xl font-bold text-slate-300">No Upcoming Matches</h3>
+                <p className="text-slate-500 text-sm mt-2">The season might be over or data needs updating.</p>
+            </div>
+        );
+
+        return (
+            <div className="col-span-1 md:col-span-2 lg:col-span-2 row-span-2 glass-card p-0 relative overflow-hidden group border-t border-white/10">
+                {/* Background Image / Gradient */}
+                <div className="absolute inset-0 bg-[url('/stadium.jpg')] bg-cover bg-center opacity-20 transition-transform duration-1000 group-hover:scale-105"></div>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-slate-900/80 to-slate-950"></div>
+                
+                {/* Content */}
+                <div className="relative z-10 h-full flex flex-col p-6 md:p-8">
+                    <div className="flex items-center justify-between mb-8">
+                        <span className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/20 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Next Match
+                        </span>
+                        <span className="text-slate-400 text-sm font-mono">{fixture.date}</span>
+                    </div>
+
+                    <div className="flex-1 flex items-center justify-between gap-4">
+                        {/* Home Team */}
+                        <div className="flex flex-col items-center gap-4 flex-1">
+                            <div className="w-20 h-20 md:w-24 md:h-24 bg-slate-800/50 rounded-full flex items-center justify-center p-4 border border-white/10 shadow-2xl backdrop-blur-sm group-hover:border-white/20 transition-all">
+                                {fixture.home.logo ? <img src={fixture.home.logo} className="w-full h-full object-contain" /> : <div className="text-2xl">🏠</div>}
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-xl md:text-2xl font-black text-white tracking-tight leading-none mb-1">{fixture.home.name}</h3>
+                                <span className="text-xs text-slate-500 font-mono uppercase">Home</span>
+                            </div>
+                        </div>
+
+                        {/* VS */}
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="text-2xl md:text-4xl font-black text-slate-700 italic">VS</div>
+                            <button onClick={() => openInsights(fixture.home, fixture.away)} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-full shadow-lg shadow-purple-900/50 transition-all flex items-center gap-2">
+                                <BrainCircuit size={14} /> Analyze
+                            </button>
+                        </div>
+
+                        {/* Away Team */}
+                        <div className="flex flex-col items-center gap-4 flex-1">
+                            <div className="w-20 h-20 md:w-24 md:h-24 bg-slate-800/50 rounded-full flex items-center justify-center p-4 border border-white/10 shadow-2xl backdrop-blur-sm group-hover:border-white/20 transition-all">
+                                {fixture.away.logo ? <img src={fixture.away.logo} className="w-full h-full object-contain" /> : <div className="text-2xl">✈️</div>}
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-xl md:text-2xl font-black text-white tracking-tight leading-none mb-1">{fixture.away.name}</h3>
+                                <span className="text-xs text-slate-500 font-mono uppercase">Away</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="p-6 md:p-8 max-w-7xl mx-auto min-h-screen relative">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
-                    <Link href="/football" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-1 transition-colors text-sm">
-                        <ArrowLeft size={14} /> Back
+                    <Link href="/football" className="inline-flex items-center gap-2 text-slate-500 hover:text-white mb-2 transition-colors text-xs uppercase tracking-widest font-bold">
+                        <ArrowLeft size={12} /> Return to Leagues
                     </Link>
-                    <h1 className="text-3xl font-bold text-white">{data.name}</h1>
+                    <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight flex items-center gap-3">
+                        {data.name}
+                        <span className="px-3 py-1 bg-slate-800 rounded text-sm font-normal text-slate-400 border border-slate-700">Season 2025/26</span>
+                    </h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="flex bg-slate-800/50 rounded-lg p-1 text-sm border border-slate-700/50">
-                        <button onClick={() => setActiveTab('standings')} className={`px-4 py-1.5 rounded-md font-medium transition-all ${activeTab === 'standings' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>Standings</button>
-                        <button onClick={() => setActiveTab('fixtures')} className={`px-4 py-1.5 rounded-md font-medium transition-all ${activeTab === 'fixtures' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>Fixtures</button>
+                    <div className="flex bg-black/40 rounded-xl p-1 text-sm border border-white/5 backdrop-blur-md">
+                        <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'dashboard' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                            <Activity size={16} /> Dashboard
+                        </button>
+                        <button onClick={() => setActiveTab('standings')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'standings' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                            <Trophy size={16} /> Table
+                        </button>
+                        <button onClick={() => setActiveTab('fixtures')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'fixtures' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                            <Calendar size={16} /> Matches
+                        </button>
                     </div>
-                    <button onClick={simulateMatchday} disabled={simulating} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold text-white text-sm shadow-lg shadow-emerald-900/30 transition-all disabled:opacity-50 flex items-center gap-2">
-                        {simulating ? <RefreshCw className="animate-spin" size={16} /> : <Play size={16} fill="currentColor" />}
-                        {simulating ? 'Simulating...' : 'Simulate'}
+                    <button onClick={runSimulate} disabled={simulating} className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-xl font-bold text-white text-sm shadow-lg shadow-emerald-900/20 transition-all disabled:opacity-50 flex items-center gap-2 border border-emerald-500/20">
+                        {simulating ? <RefreshCw className="animate-spin" size={18} /> : <Play size={18} fill="currentColor" />}
+                        {simulating ? 'Simulating...' : 'Simulate Week'}
                     </button>
                 </div>
             </div>
 
-            {/* Group Tabs */}
+            {/* Dashboard View (Bento Grid) */}
+            {activeTab === 'dashboard' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    
+                    {/* 1. Hero Match Card (Top Left - Big) */}
+                    <HeroMatchCard fixture={fixtures[0]} />
+
+                    {/* 2. AI Status Widget (Top Right) */}
+                    <div className="col-span-1 glass-card p-6 flex flex-col justify-between relative overflow-hidden group hover:border-purple-500/30 transition-colors">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                        <div>
+                            <div className="flex items-center gap-2 mb-2 text-purple-400">
+                                <BrainCircuit size={20} />
+                                <span className="text-xs font-bold uppercase tracking-widest">AI Analyst</span>
+                            </div>
+                            <h3 className="text-2xl font-bold text-white leading-tight">
+                                {ollamaStatus === 'ready' ? 'System Online' : 'System Offline'}
+                            </h3>
+                            <p className="text-sm text-slate-400 mt-2">
+                                {ollamaStatus === 'ready' 
+                                    ? 'Neural engines ready for match prediction.' 
+                                    : 'Connect Ollama to enable advanced predictions.'}
+                            </p>
+                        </div>
+                        <div className="mt-4">
+                            <div className="flex items-center gap-2 text-xs font-mono text-slate-500 mb-2">
+                                <span className={`w-2 h-2 rounded-full ${ollamaStatus === 'ready' ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                Status: {ollamaStatus.toUpperCase()}
+                            </div>
+                            {/* Visual Pulse Line */}
+                            <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                                <div className={`h-full ${ollamaStatus === 'ready' ? 'bg-purple-500 w-full animate-pulse' : 'bg-slate-700 w-1/4'}`}></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 3. Top Scorer Widget (Mid Right) */}
+                    <div className="col-span-1 glass-card p-6 flex flex-col relative overflow-hidden">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                                <Target size={14} className="text-amber-400" /> Golden Boot
+                            </h3>
+                        </div>
+                        {/* Placeholder for top scorers - in real app would come from DB */}
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs">1</div>
+                                <div className="flex-1">
+                                    <div className="text-sm font-bold text-white">Harry Kane</div>
+                                    <div className="text-xs text-slate-500">Bayern München</div>
+                                </div>
+                                <div className="text-amber-400 font-mono font-bold">24</div>
+                            </div>
+                            <div className="flex items-center gap-3 opacity-75">
+                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs">2</div>
+                                <div className="flex-1">
+                                    <div className="text-sm font-bold text-white">Guirassy</div>
+                                    <div className="text-xs text-slate-500">Dortmund</div>
+                                </div>
+                                <div className="text-amber-400 font-mono font-bold">18</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 4. Mini Standings (Bottom Row - Wide) */}
+                    <div className="col-span-1 md:col-span-2 glass-card p-0 flex flex-col">
+                        <div className="p-4 border-b border-white/5 flex justify-between items-center">
+                            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                                <Trophy size={14} className="text-yellow-500" /> Top 5
+                            </h3>
+                            <button onClick={() => setActiveTab('standings')} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">View All →</button>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <tbody className="divide-y divide-white/5">
+                                    {filteredTeams.slice(0, 5).map((t: any, i: number) => (
+                                        <tr key={t.id} className="hover:bg-white/5 transition-colors">
+                                            <td className="pl-4 py-3 w-8 text-center font-mono text-slate-500">{i + 1}</td>
+                                            <td className="px-3 py-3 font-bold text-slate-200">{t.name}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-white">{t.points} <span className="text-slate-500 text-xs">pts</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* 5. League Stats / Info (Bottom Right) */}
+                    <div className="col-span-1 md:col-span-2 glass-card p-6 flex items-center justify-around text-center">
+                         <div>
+                            <div className="text-3xl font-black text-white mb-1">{data.teams.length}</div>
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Teams</div>
+                         </div>
+                         <div className="w-px h-12 bg-white/10"></div>
+                         <div>
+                            <div className="text-3xl font-black text-white mb-1">{currentMatchday}</div>
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Matchday</div>
+                         </div>
+                         <div className="w-px h-12 bg-white/10"></div>
+                         <div>
+                            <div className="text-3xl font-black text-emerald-400 mb-1">
+                                {(data.teams.reduce((acc: number, t: any) => acc + (t.stats?.gf || 0), 0) / (data.teams[0]?.stats?.played || 1) / (data.teams.length/2)).toFixed(2)}
+                            </div>
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Goals/Match</div>
+                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Group Tabs (Only show on Standings) */}
             {uniqueGroups.length > 1 && activeTab === 'standings' && (
                 <div className="flex gap-2 overflow-x-auto pb-3 mb-4">
                     {uniqueGroups.map((g: any) => (
@@ -265,6 +272,7 @@ export default function LeaguePage() {
                     ))}
                 </div>
             )}
+
 
             {/* Standings Table */}
             {activeTab === 'standings' && (
@@ -360,22 +368,36 @@ export default function LeaguePage() {
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {fixtures.map((f, i) => (
+                        {fixtures.length === 0 ? (
+                            <div className="col-span-full glass-card p-8 text-center text-slate-400">
+                                <Calendar size={32} className="mx-auto mb-3 opacity-50" />
+                                <p className="font-medium">No fixtures for matchday {currentMatchday}</p>
+                                <p className="text-sm mt-1">Run <code className="bg-slate-800 px-2 py-0.5 rounded">npm run update-data</code> to fetch fixtures from the API.</p>
+                            </div>
+                        ) : fixtures.map((f, i) => (
                             <div key={i} className="glass-card p-4">
                                 <div className="flex items-center justify-between mb-3">
                                     <div className="flex items-center gap-2 flex-1 min-w-0">
                                         <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                             {f.home.logo ? <img src={f.home.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                         </div>
-                                        <Link href={`/football/team/${f.home.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
-                                            {f.home.short_name || f.home.name}
-                                        </Link>
+                                        {f.home.id ? (
+                                            <Link href={`/football/team/${f.home.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
+                                                {f.home.short_name || f.home.name}
+                                            </Link>
+                                        ) : (
+                                            <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
+                                        )}
                                     </div>
                                     <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
                                     <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
-                                        <Link href={`/football/team/${f.away.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
-                                            {f.away.short_name || f.away.name}
-                                        </Link>
+                                        {f.away.id ? (
+                                            <Link href={`/football/team/${f.away.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
+                                                {f.away.short_name || f.away.name}
+                                            </Link>
+                                        ) : (
+                                            <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
+                                        )}
                                         <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                             {f.away.logo ? <img src={f.away.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
                                         </div>
@@ -402,7 +424,7 @@ export default function LeaguePage() {
                                 ) : (
                                     <button
                                         onClick={() => predictMatch(i, f.home.id, f.away.id)}
-                                        disabled={f.loadingOdds}
+                                        disabled={f.loadingOdds || !f.home.id || !f.away.id}
                                         className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70"
                                     >
                                         {f.loadingOdds ? (
@@ -581,39 +603,104 @@ export default function LeaguePage() {
                                     )}
 
                                     {aiAnalysis && (
-                                        <div className="relative group">
-                                            <div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap bg-slate-900/40 backdrop-blur-md p-5 rounded-lg border border-purple-500/20 font-sans shadow-xl relative z-10">
-                                                {/* Expert Badge */}
-                                                <div className="absolute -top-3 -right-3 bg-purple-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded shadow-lg flex items-center gap-1 transform rotate-2">
-                                                    <Trophy size={10} /> Certified
-                                                </div>
+                                        <div className="relative animate-in fade-in slide-in-from-bottom-4 duration-700">
+                                            {(() => {
+                                                const parsed = parseAiAnalysis(aiAnalysis);
+                                                const isStructured = parsed.tip && parsed.bet;
 
-                                                <div className="font-mono text-xs opacity-80 mb-2 text-purple-300 uppercase tracking-widest">Analyst Report</div>
+                                                return (
+                                                    <div className="bg-slate-900/80 backdrop-blur-xl rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden">
+                                                        {/* Header Gradient */}
+                                                        <div className="h-1 bg-gradient-to-r from-purple-500 via-fuchsia-500 to-emerald-500"></div>
+                                                        
+                                                        {/* Reasoning Toggle */}
+                                                        {thoughtProcess && (
+                                                            <div className="bg-black/40 border-b border-white/5">
+                                                                <details className="group/details">
+                                                                    <summary className="px-4 py-2 text-[10px] font-mono text-purple-400/70 cursor-pointer hover:text-purple-400 hover:bg-white/5 transition-colors flex items-center gap-2 select-none uppercase tracking-widest">
+                                                                        <BrainCircuit size={12} />
+                                                                        <span>Analyst Reasoning Protocol</span>
+                                                                        <span className="ml-auto opacity-50 group-open/details:rotate-180 transition-transform">▼</span>
+                                                                    </summary>
+                                                                    <div className="p-4 text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed bg-black/50 shadow-inner">
+                                                                        {thoughtProcess}
+                                                                    </div>
+                                                                </details>
+                                                            </div>
+                                                        )}
 
-                                                {/* Reasoning Box */}
-                                                {thoughtProcess && (
-                                                    <details className="mb-4 bg-slate-950/50 rounded border border-purple-500/10 overflow-hidden group/details">
-                                                        <summary className="px-3 py-2 text-xs font-mono text-purple-400 cursor-pointer hover:bg-purple-500/10 transition-colors flex items-center gap-2 select-none">
-                                                            <BrainCircuit size={12} />
-                                                            <span>Show Analyst's Reasoning Process</span>
-                                                            <span className="ml-auto opacity-50 group-open/details:rotate-180 transition-transform">▼</span>
-                                                        </summary>
-                                                        <div className="p-3 text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed border-t border-purple-500/10 bg-black/20">
-                                                            {thoughtProcess}
+                                                        <div className="p-5 space-y-5">
+                                                            {/* 1. The Tip (Hero Section) */}
+                                                            {parsed.tip && (
+                                                                <div className="text-center">
+                                                                    <div className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em] mb-2">Predicted Score</div>
+                                                                    <div className="inline-block relative">
+                                                                        <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 tracking-tight font-sans">
+                                                                            {parsed.tip.replace(/\s*-\s*Konfidenz:.*/i, '')}
+                                                                        </div>
+                                                                        {/* Decorative Elements */}
+                                                                        <div className="absolute -inset-4 bg-purple-500/20 blur-xl rounded-full -z-10"></div>
+                                                                    </div>
+                                                                    {parsed.tip.match(/Konfidenz:\s*(.*)/i) && (
+                                                                        <div className="mt-2 flex justify-center">
+                                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                                                                                parsed.tip.includes('Hoch') ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 
+                                                                                parsed.tip.includes('Mittel') ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 
+                                                                                'bg-slate-700 text-slate-400 border-slate-600'
+                                                                            }`}>
+                                                                                Confidence: {parsed.tip.match(/Konfidenz:\s*(.*)/i)?.[1]}
+                                                                            </span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+
+                                                            {/* 2. Analysis Text */}
+                                                            <div className="bg-slate-800/50 rounded-lg p-4 border border-white/5">
+                                                                <div className="flex items-start gap-3">
+                                                                    <div className="mt-1 p-1.5 bg-purple-500/20 rounded text-purple-400">
+                                                                        <Sparkles size={14} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h4 className="text-xs font-bold text-slate-300 uppercase mb-1">Match Analysis</h4>
+                                                                        <p className="text-sm text-slate-300 leading-relaxed">
+                                                                            {isStructured ? parsed.analysis : aiAnalysis}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* 3. The Best Bet (Ticket Style) */}
+                                                            {parsed.bet && (
+                                                                <div className="relative group cursor-default">
+                                                                    {/* Ticket Cutouts */}
+                                                                    <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-r border-amber-500/30 z-10"></div>
+                                                                    <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-l border-amber-500/30 z-10"></div>
+                                                                    
+                                                                    <div className="bg-gradient-to-br from-amber-500/10 to-orange-600/5 border border-amber-500/30 rounded-lg p-4 relative overflow-hidden">
+                                                                        <div className="flex justify-between items-center mb-2">
+                                                                            <span className="text-[10px] font-bold text-amber-500/80 uppercase tracking-widest border border-amber-500/30 px-1.5 rounded">Top Pick</span>
+                                                                            <Sparkles size={12} className="text-amber-400" />
+                                                                        </div>
+                                                                        
+                                                                        <div className="text-lg font-bold text-amber-100 font-mono tracking-tight">
+                                                                            {parsed.bet}
+                                                                        </div>
+                                                                        
+                                                                        {/* Simulated "Place Bet" action */}
+                                                                        <div className="mt-3 pt-3 border-t border-amber-500/20 border-dashed flex justify-between items-center">
+                                                                            <span className="text-[10px] text-amber-500/60 font-mono">AI-VERIFIED • HIGH VALUE</span>
+                                                                            <div className="h-2 w-16 bg-amber-500/20 rounded-full overflow-hidden">
+                                                                                <div className="h-full bg-amber-500/60 w-3/4"></div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    </details>
-                                                )}
-
-                                                {typewriterText}
-                                                <span className="animate-pulse inline-block w-1.5 h-3.5 bg-purple-500 ml-1 align-middle"></span>
-                                            </div>
-
-                                            {/* Value Alert Badge if High Value detected */}
-                                            {(aiAnalysis.includes("Value-") || aiAnalysis.includes("Value ")) && (
-                                                <div className="mt-2 flex items-center gap-2 text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded border border-amber-500/20 animate-pulse">
-                                                    <Sparkles size={12} /> High Value Opportunity Detected
-                                                </div>
-                                            )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                 </div>

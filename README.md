@@ -21,6 +21,7 @@
 
 ```bash
 npm install
+cp .env.example .env   # Add your API keys to .env
 npm run dev
 ```
 
@@ -32,7 +33,18 @@ This starts the Next.js dev server and launches the Electron window. The app run
 |---------|-------------|
 | `npm run dev` | Start Next.js + Electron |
 | `npm run build` | Build Next.js for production |
-| `npm run update-data` | Fetch latest data from APIs |
+| `npm run update-data` | Fetch latest data from APIs (respects 24h limit) |
+| `npm run update-data:force` | Force full API refresh (bypasses 24h limit) |
+| `npm run reset-db` | Reset database and reseed |
+
+## API Rate Limits
+
+To stay within free-tier limits (e.g. 100 requests/day), API data is cached in the database:
+
+- **24h cooldown:** No API calls if data was updated in the last 24 hours
+- **Players:** Only fetched for teams that have no players yet
+- **Fixtures:** Always fetched on each sync (6 API calls) to keep schedules current
+- Use `npm run update-data:force` to force a full refresh when needed
 
 ## Project Structure
 

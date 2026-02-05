@@ -6,7 +6,8 @@ const prisma = new PrismaClient({
 
 async function initDb() {
     try {
-        await prisma.$executeRawUnsafe(`PRAGMA journal_mode = WAL;`);
+        // PRAGMA returns results; use $queryRawUnsafe (not $executeRawUnsafe)
+        await prisma.$queryRawUnsafe(`PRAGMA journal_mode = WAL;`);
         console.log("Database WAL mode enabled.");
     } catch (e) {
         console.warn("Failed to enable WAL mode:", e);

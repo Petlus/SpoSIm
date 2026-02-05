@@ -43,9 +43,9 @@ footballSim.simulateMatch = (home, away) => {
     // We still simulate goals for realism, but bias chance creation heavily
     // Using calculate homeStr/awayStr from above explicitly
 
-    // Defense Factors (legacy mapping for simplicity in goal loop)
-    const homeDef = homePower * 0.9;
-    const awayDef = awayPower * 0.9;
+    // Defense Factors (derived from strength - works for both Elo and Power model)
+    const homeDef = homeStr * 0.9;
+    const awayDef = awayStr * 0.9;
 
     let homeGoals = 0;
     let awayGoals = 0;

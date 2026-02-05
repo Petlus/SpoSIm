@@ -9,28 +9,30 @@ export default function Home() {
     const [progress, setProgress] = React.useState({ step: '', progress: 0, detail: '' });
 
     React.useEffect(() => {
-        // @ts-ignore
-        if (window.electron) {
+        const electron = window.electron;
+        if (electron) {
+            let unsubscribe: (() => void) | undefined;
             // Check persistence first
-            // @ts-ignore
-            window.electron.getSetupStatus().then(settings => {
+            electron.getSetupStatus().then(settings => {
                 if (settings && settings.setupComplete) {
                     setSetupStatus('complete');
                 } else {
                     // Start Setup logic
-                    // @ts-ignore
-                    window.electron.on('ai-setup-progress', (event, data) => {
-                        setProgress(data);
-                        if (data.step === 'done') setSetupStatus('complete');
+                    unsubscribe = electron.on('ai-setup-progress', (_event, data) => {
+                        const d = data as { step?: string; progress?: number; detail?: string };
+                        setProgress({ step: d.step ?? '', progress: d.progress ?? 0, detail: d.detail ?? '' });
+                        if (d.step === 'done') setSetupStatus('complete');
                     });
 
                     setSetupStatus('running');
-                    // @ts-ignore
-                    window.electron.startAiSetup().then(res => {
+                    electron.startAiSetup().then(res => {
                         if (!res.success) setSetupStatus('error');
                     });
                 }
             });
+            return () => {
+                unsubscribe?.();
+            };
         }
     }, []);
 

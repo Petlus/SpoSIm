@@ -1,22 +1,68 @@
+require('dotenv').config();
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
-const { LEAGUE_PRESTIGE, LEAGUE_BASE_ELO, TOP_TEAMS_MARKET_VALUE } = require('./data_constants');
-const { CURRENT_SEASON_STR } = require('../config/season');
+const { LEAGUE_PRESTIGE, LEAGUE_BASE_ELO, TOP_TEAMS_MARKET_VALUE, PLAYER_RATING_MAP, PLAYER_FORM_BONUS } = require('./data_constants');
+const { getSquad, kickerToRating } = require('./data/leagues');
+const { CURRENT_SEASON_STR, CURRENT_SEASON_YEAR, API_MIN_INTERVAL_MS } = require('../config/season');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-const FOOTBALL_API_KEY = "083b1ae74d7d441d809ec0e0617efcb5";
+const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
 const FOOTBALL_BASE_URL = "https://api.football-data.org/v4";
 
 // API-Football.com for supplementary player data
-const API_FOOTBALL_KEY = "22700030a1c824d8eb278bb5951f2a87";
+const API_FOOTBALL_KEY = process.env.API_FOOTBALL_KEY || '';
 const API_FOOTBALL_URL = "https://v3.football.api-sports.io";
 
 const F1_BASE_URL = "http://api.jolpi.ca/ergast/f1";
 
-// Mapping football-data.org team IDs to api-football.com team IDs
+/** Derive rating from market value (deterministic). €1M ~65, €100M ~81, €150M+ ~88 */
+function marketValueToRating(marketValue) {
+    if (!marketValue || marketValue <= 0) return 65;
+    const logVal = Math.log10(Math.max(marketValue, 100000));
+    const rating = 65 + Math.round((logVal - 6) * 8);
+    return Math.max(50, Math.min(95, rating));
+}
+
+/** 
+ * Calculate player rating from multiple sources:
+ * 1. Manual PLAYER_RATING_MAP (highest priority for known stars)
+ * 2. API top-player data (goals/assists boost)
+ * 3. Market value formula (fallback)
+ * Plus form bonus.
+ */
+function getPlayerRating(playerName, marketValue, topPlayersData = {}) {
+    // 1. Check manual map first (overrides everything)
+    if (PLAYER_RATING_MAP[playerName]) {
+        const base = PLAYER_RATING_MAP[playerName];
+        const formBonus = PLAYER_FORM_BONUS[playerName] ?? 0;
+        return Math.max(50, Math.min(95, base + formBonus));
+    }
+
+    // 2. Check if player is in top scorers/assists data
+    const topData = topPlayersData[playerName];
+    if (topData) {
+        // Convert API rating (6.0-9.0 scale) to our scale (65-95)
+        // API 7.0 = 75, API 8.0 = 85, API 9.0 = 95
+        let rating = 65 + (topData.rating - 6.0) * 10;
+        
+        // Bonus for goals/assists production
+        const goalBonus = Math.min(5, Math.floor(topData.goals / 5)); // +1 per 5 goals, max +5
+        const assistBonus = Math.min(3, Math.floor(topData.assists / 4)); // +1 per 4 assists, max +3
+        rating += goalBonus + assistBonus;
+        
+        return Math.max(70, Math.min(95, Math.round(rating)));
+    }
+
+    // 3. Fallback to market value formula
+    const base = marketValueToRating(marketValue);
+    const formBonus = PLAYER_FORM_BONUS[playerName] ?? 0;
+    return Math.max(50, Math.min(95, base + formBonus));
+}
+
+// Mapping football-data.org team IDs to api-football.com team IDs (25/26 season)
 const TEAM_ID_MAP = {
     // ===== BUNDESLIGA =====
     5: 157,    // Bayern München
@@ -33,10 +79,12 @@ const TEAM_ID_MAP = {
     15: 170,   // 1. FC Union Berlin
     1: 180,    // 1. FC Köln
     16: 164,   // FC Augsburg
-    55: 188,   // Darmstadt 98
     28: 181,   // Heidenheim
+    31: 80,    // FC St. Pauli
+    32: 81,    // Hamburger SV
     36: 182,   // VfL Bochum
     44: 174,   // FSV Mainz 05
+    55: 188,   // Darmstadt 98
 
     // ===== PREMIER LEAGUE =====
     65: 50,    // Manchester City
@@ -46,35 +94,37 @@ const TEAM_ID_MAP = {
     61: 49,    // Chelsea
     73: 47,    // Tottenham
     67: 34,    // Newcastle
-    62: 66,    // Aston Villa
-    1044: 51,  // Brighton
-    76: 48,    // West Ham
-    354: 52,   // Crystal Palace
-    563: 55,   // Brentford
+    58: 66,    // Aston Villa
+    62: 45,    // Everton
+    397: 51,   // Brighton & Hove Albion
+    563: 48,   // West Ham United
+    76: 39,    // Wolverhampton Wanderers
+    402: 55,   // Brentford FC
+    63: 46,    // Fulham FC
     351: 65,   // Nottingham Forest
-    341: 46,   // Fulham
-    328: 35,   // Bournemouth
-    338: 39,   // Wolves
-    340: 45,   // Everton
-    389: 1359, // Luton Town
-    402: 44,   // Burnley
-    356: 62,   // Sheffield United
+    59: 35,    // Bournemouth
+    354: 52,   // Crystal Palace
+    341: 63,   // Leeds United
+    328: 44,   // Burnley FC
+    56: 71,    // Sunderland AFC
 
     // ===== LA LIGA =====
     86: 541,   // Real Madrid
     81: 529,   // Barcelona
     78: 530,   // Atletico Madrid
-    82: 531,   // Athletic Bilbao
+    77: 531,   // Athletic Club
     95: 532,   // Real Sociedad
-    94: 533,   // Real Betis
+    94: 534,   // Villarreal CF
+    90: 548,   // Real Betis
     559: 536,  // Sevilla
-    558: 534,  // Villarreal
-    90: 548,   // Getafe
+    558: 715,  // Espanyol Barcelona
+    82: 548,   // Getafe CF
     92: 543,   // Real Valladolid
     298: 538,  // Girona
     267: 728,  // Osasuna
     264: 540,  // Celta Vigo
-    275: 537,  // Rayo Vallecano
+    87: 537,   // Rayo Vallecano
+    275: 537,  // Rayo (alias)
     263: 798,  // Mallorca
     277: 542,  // Alaves
     250: 539,  // Cadiz
@@ -184,10 +234,10 @@ async function fetchFixtures() {
     for (const code of leagueCodes) {
         await sleep(1500); // Rate limit
         try {
-            // Get next 10 scheduled matches for 2024 season (API might not have 2025 yet)
-            // Use 2024 for now as 2025 might be empty in API
-            const res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15&season=2024`, { headers });
-
+            let res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15&season=${CURRENT_SEASON_YEAR}`, { headers });
+            if (!res.data.matches || res.data.matches.length === 0) {
+                res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15&season=2024`, { headers });
+            }
             if (res.data.matches && res.data.matches.length > 0) {
                 const matches = res.data.matches.map(m => ({
                     id: m.id,
@@ -211,6 +261,118 @@ async function fetchFixtures() {
     return allFixtures;
 }
 
+// Fetch current standings from football-data.org
+async function fetchStandings() {
+    console.log("Fetching Standings from API...");
+    const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
+    const standingsMap = {}; // teamId -> { played, wins, draws, losses, gf, ga, points }
+
+    const leagueCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1'];
+
+    for (const code of leagueCodes) {
+        await sleep(1500); // Rate limit
+        try {
+            let res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/standings?season=${CURRENT_SEASON_YEAR}`, { headers });
+            
+            // Fallback to 2024 if no data
+            if (!res.data.standings || res.data.standings.length === 0) {
+                res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/standings?season=2024`, { headers });
+            }
+
+            if (res.data.standings && res.data.standings.length > 0) {
+                // Find the TOTAL standings (not HOME/AWAY)
+                const totalStandings = res.data.standings.find(s => s.type === 'TOTAL');
+                if (totalStandings && totalStandings.table) {
+                    for (const row of totalStandings.table) {
+                        standingsMap[row.team.id] = {
+                            played: row.playedGames || 0,
+                            wins: row.won || 0,
+                            draws: row.draw || 0,
+                            losses: row.lost || 0,
+                            gf: row.goalsFor || 0,
+                            ga: row.goalsAgainst || 0,
+                            points: row.points || 0,
+                            position: row.position || 0
+                        };
+                    }
+                    console.log(`-> Fetched standings for ${code}: ${totalStandings.table.length} teams`);
+                }
+            }
+        } catch (err) {
+            console.error(`Standings error ${code}:`, err.message);
+        }
+    }
+
+    return standingsMap;
+}
+
+// Fetch top scorers and assists from api-football.com (for rating boost)
+async function fetchTopPlayers() {
+    console.log("Fetching Top Scorers & Assists...");
+    const headers = { 'x-rapidapi-key': API_FOOTBALL_KEY, 'x-rapidapi-host': 'v3.football.api-sports.io' };
+    const topPlayersMap = {}; // playerName -> { goals, assists, rating }
+
+    // League IDs for api-football.com
+    const leagues = [
+        { id: 78, name: 'Bundesliga' },
+        { id: 39, name: 'Premier League' },
+        { id: 140, name: 'La Liga' },
+        { id: 135, name: 'Serie A' },
+        { id: 61, name: 'Ligue 1' }
+    ];
+
+    for (const league of leagues) {
+        await sleep(500);
+        try {
+            // Top Scorers
+            const scorersRes = await axios.get(
+                `${API_FOOTBALL_URL}/players/topscorers?league=${league.id}&season=${CURRENT_SEASON_YEAR}`,
+                { headers }
+            );
+            if (scorersRes.data?.response) {
+                for (const p of scorersRes.data.response.slice(0, 15)) {
+                    const name = p.player?.name;
+                    if (name) {
+                        topPlayersMap[name] = {
+                            goals: p.statistics?.[0]?.goals?.total || 0,
+                            assists: p.statistics?.[0]?.goals?.assists || 0,
+                            rating: parseFloat(p.statistics?.[0]?.games?.rating) || 7.0,
+                            appearances: p.statistics?.[0]?.games?.appearences || 0
+                        };
+                    }
+                }
+                console.log(`-> Top scorers ${league.name}: ${scorersRes.data.response.length} players`);
+            }
+
+            await sleep(500);
+
+            // Top Assists
+            const assistsRes = await axios.get(
+                `${API_FOOTBALL_URL}/players/topassists?league=${league.id}&season=${CURRENT_SEASON_YEAR}`,
+                { headers }
+            );
+            if (assistsRes.data?.response) {
+                for (const p of assistsRes.data.response.slice(0, 15)) {
+                    const name = p.player?.name;
+                    if (name && !topPlayersMap[name]) {
+                        topPlayersMap[name] = {
+                            goals: p.statistics?.[0]?.goals?.total || 0,
+                            assists: p.statistics?.[0]?.goals?.assists || 0,
+                            rating: parseFloat(p.statistics?.[0]?.games?.rating) || 7.0,
+                            appearances: p.statistics?.[0]?.games?.appearences || 0
+                        };
+                    }
+                }
+                console.log(`-> Top assists ${league.name}: ${assistsRes.data.response.length} players`);
+            }
+        } catch (err) {
+            console.error(`Top players error ${league.name}:`, err.message);
+        }
+    }
+
+    return topPlayersMap;
+}
+
 // Fetch real player names from api-football.com
 async function fetchRealPlayers(teamIds) {
     console.log("Fetching Real Players (api-football.com)...");
@@ -222,22 +384,23 @@ async function fetchRealPlayers(teamIds) {
         const apiTeamId = TEAM_ID_MAP[teamId];
         if (!apiTeamId) continue;
 
-        if (!apiTeamId) continue;
-
         await sleep(300); // Rate limit per team
         try {
             const res = await axios.get(`${API_FOOTBALL_URL}/players/squads?team=${apiTeamId}`, { headers });
 
             if (res.data?.response?.[0]?.players) {
-                const players = res.data.response[0].players.map(p => ({
+                const raw = res.data.response[0].players.map(p => ({
                     name: p.name,
                     age: p.age,
-                    number: p.number,
-                    position: mapPosition(p.position), // GK, DEF, MID, FWD
-                    rating: Math.floor(Math.random() * (94 - 68) + 68), // Mock Rating 68-94
+                    number: p.number ?? 99,
+                    position: mapPosition(p.position),
                     photo: p.photo,
                     isInjured: p.injured || false
                 }));
+                // Limit to first-team: sort by number (1-44 typical), take max 28
+                const players = raw
+                    .sort((a, b) => a.number - b.number)
+                    .slice(0, 28);
                 allPlayers[teamId] = players;
                 console.log(`-> Fetched ${players.length} real players for team ${teamId}`);
             }
@@ -325,23 +488,64 @@ const { prisma } = require('./db');
 
 // ... (fetch functions remain same)
 
-async function updateAllData(options = { prioritySync: false }) {
+async function updateAllData(options = { prioritySync: false, force: false }) {
     console.log("Starting DB Update (Prisma)... Options:", options);
-    const footballData = await fetchFootballData();
-    const fixturesData = await fetchFixtures();
-    const f1Data = await fetchF1Data();
 
-    // Fetch Real Players
-    let allTeamIds = [];
-    if (options.prioritySync) {
-        console.log("Priority Sync: Fetching players only for Top 5 teams per league.");
-        allTeamIds = footballData.flatMap(l => l.teams.slice(0, 5).map(t => t.id));
-    } else {
-        allTeamIds = footballData.flatMap(l => l.teams.map(t => t.id));
+    // API protection: skip if data is fresh (respects 100 req/day limit)
+    const settings = await prisma.appSettings.findFirst({ where: { id: 1 } });
+    const lastUpdate = settings?.lastUpdate ? new Date(settings.lastUpdate).getTime() : 0;
+    const now = Date.now();
+    if (!options.force && lastUpdate > 0 && (now - lastUpdate) < API_MIN_INTERVAL_MS) {
+        console.log("Data is fresh (< 24h). Skipping API calls. Use --force to refresh.");
+        return { success: true, skipped: true, message: "Data is fresh. Use --force to refresh." };
     }
 
-    console.log(`Fetching players for ${allTeamIds.length} teams...`);
-    const realPlayers = await fetchRealPlayers(allTeamIds);
+    const footballData = await fetchFootballData();
+    const fixturesData = await fetchFixtures();
+    const standingsData = await fetchStandings();
+    const topPlayersData = await fetchTopPlayers(); // NEW: Fetch top scorers/assists
+    let f1Data = null;
+
+    if (!options.prioritySync) {
+        f1Data = await fetchF1Data();
+    }
+
+    // Apply real standings to footballData teams
+    for (const league of footballData) {
+        for (const team of league.teams) {
+            if (standingsData[team.id]) {
+                const s = standingsData[team.id];
+                team.stats = {
+                    played: s.played,
+                    wins: s.wins,
+                    draws: s.draws,
+                    losses: s.losses,
+                    gf: s.gf,
+                    ga: s.ga
+                };
+                team.points = s.points;
+            }
+        }
+    }
+
+    // Fetch Real Players: ONLY for teams that have 0 players (saves 60-130 API calls!)
+    let allTeamIds = footballData.flatMap(l => l.teams.map(t => t.id));
+    const teamsNeedingPlayers = [];
+    for (const tid of allTeamIds) {
+        const count = await prisma.player.count({ where: { teamId: tid } });
+        if (count === 0) teamsNeedingPlayers.push(tid);
+    }
+    const teamIdsToFetch = options.prioritySync
+        ? teamsNeedingPlayers.slice(0, 25)
+        : teamsNeedingPlayers;
+
+    let realPlayers = {};
+    if (teamIdsToFetch.length > 0) {
+        console.log(`Fetching players for ${teamIdsToFetch.length} teams (${allTeamIds.length - teamIdsToFetch.length} already have data)...`);
+        realPlayers = await fetchRealPlayers(teamIdsToFetch);
+    } else {
+        console.log("All teams have players. Skipping player fetch (saves API calls).");
+    }
 
     const CL_ID = 2001;
     const domesticLeagues = footballData.filter(l => l.id !== CL_ID);
@@ -478,14 +682,14 @@ async function updateAllData(options = { prioritySync: false }) {
                                 pValue = Math.floor(baseVal * variance);
                             }
 
-                            const calibratedRating = Math.floor(baseRating + (Math.random() * 9 - 4));
+                            const rating = getPlayerRating(p.name, pValue, topPlayersData);
                             await tx.player.create({
                                 data: {
                                     teamId: team.id,
                                     name: p.name,
                                     position: p.position,
                                     age: p.age,
-                                    rating: calibratedRating,
+                                    rating: rating,
                                     marketValue: pValue,
                                     number: p.number,
                                     photo: p.photo
@@ -493,27 +697,53 @@ async function updateAllData(options = { prioritySync: false }) {
                             });
                         }
                     } else if (existingPlayerCount < 11) {
-                        // Generate Mock Players
-                        const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
-                        for (let i = 0; i < 20; i++) {
-                            const pos = positions[i % positions.length];
-                            const rating = Math.floor(baseRating + (Math.random() * 8 - 4));
+                        // Check if we have squad data for this team (from leagues folder)
+                        const kickerSquad = getSquad(team.name);
+                        
+                        if (kickerSquad && kickerSquad.length > 0) {
+                            // Use squad data from leagues folder (real names and ratings)
+                            console.log(`[Squad] Using data for ${team.name} (${kickerSquad.length} players)`);
+                            for (let i = 0; i < kickerSquad.length; i++) {
+                                const kp = kickerSquad[i];
+                                const rating = kp.kickerNote ? kickerToRating(kp.kickerNote) : 70;
+                                const mockVal = Math.floor(baseMV / kickerSquad.length);
+                                
+                                await tx.player.create({
+                                    data: {
+                                        teamId: team.id,
+                                        name: kp.name,
+                                        position: kp.position,
+                                        age: 18 + Math.floor(Math.random() * 15),
+                                        rating: Math.max(50, Math.min(95, rating)),
+                                        marketValue: mockVal,
+                                        goals: kp.goals || 0,
+                                        number: i + 1,
+                                        fitness: 100
+                                    }
+                                });
+                            }
+                        } else {
+                            // Fallback: Generate Mock Players with generic names
+                            console.log(`[Mock] No Kicker data for ${team.name}, using generic players`);
+                            const positions = ['GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD', 'SUB', 'SUB', 'SUB', 'SUB'];
+                            for (let i = 0; i < 20; i++) {
+                                const pos = positions[i % positions.length];
+                                let mockVal = Math.floor(baseMV / 20);
+                                const rating = marketValueToRating(mockVal);
 
-                            // Simple MV for mock
-                            let mockVal = Math.floor(baseMV / 20);
-
-                            await tx.player.create({
-                                data: {
-                                    teamId: team.id,
-                                    name: `${pos} Player ${i + 1}`,
-                                    position: pos,
-                                    age: 18 + Math.floor(Math.random() * 15),
-                                    rating: rating,
-                                    marketValue: mockVal,
-                                    number: i + 1,
-                                    fitness: 100
-                                }
-                            });
+                                await tx.player.create({
+                                    data: {
+                                        teamId: team.id,
+                                        name: `${pos} Player ${i + 1}`,
+                                        position: pos,
+                                        age: 18 + Math.floor(Math.random() * 15),
+                                        rating: rating,
+                                        marketValue: mockVal,
+                                        number: i + 1,
+                                        fitness: 100
+                                    }
+                                });
+                            }
                         }
                     }
 
@@ -665,11 +895,14 @@ async function updateAllData(options = { prioritySync: false }) {
                 }
             }
 
-            // Save Fixtures
-            console.log(`Saving ${fixturesData.length} fixtures...`);
-            for (const fix of fixturesData) {
-                // Check if match already exists to avoid duplicates if ID persists or use composite unique if applicable
-                // API-Football IDs are unique.
+            // Save Fixtures (only those where both teams exist in our DB)
+            const validTeamIds = new Set(footballData.flatMap(l => l.teams.map(t => t.id)));
+            const fixturesToSave = fixturesData.filter(f => validTeamIds.has(f.homeTeamId) && validTeamIds.has(f.awayTeamId));
+            if (fixturesData.length > fixturesToSave.length) {
+                console.log(`Skipping ${fixturesData.length - fixturesToSave.length} fixtures (teams not in DB)`);
+            }
+            console.log(`Saving ${fixturesToSave.length} fixtures...`);
+            for (const fix of fixturesToSave) {
                 await tx.match.upsert({
                     where: { id: fix.id },
                     update: {
@@ -693,6 +926,13 @@ async function updateAllData(options = { prioritySync: false }) {
             timeout: 50000 // Increase timeout for large transaction
         });
 
+        // Update lastUpdate so 24h API protection kicks in
+        await prisma.appSettings.upsert({
+            where: { id: 1 },
+            update: { lastUpdate: new Date() },
+            create: { id: 1, lastUpdate: new Date() }
+        });
+
         console.log("DB Update Complete.");
         return { success: true };
 
@@ -702,17 +942,163 @@ async function updateAllData(options = { prioritySync: false }) {
     }
 }
 
+// Kicker.de Team Slugs for Bundesliga
+const KICKER_TEAM_SLUGS = {
+    // Bundesliga
+    'FC Bayern München': 'fc-bayern-muenchen',
+    'Borussia Dortmund': 'borussia-dortmund',
+    'Bayer 04 Leverkusen': 'bayer-04-leverkusen',
+    'RB Leipzig': 'rb-leipzig',
+    'VfB Stuttgart': 'vfb-stuttgart',
+    'Eintracht Frankfurt': 'eintracht-frankfurt',
+    'VfL Wolfsburg': 'vfl-wolfsburg',
+    'Borussia Mönchengladbach': 'borussia-moenchengladbach',
+    'SC Freiburg': 'sc-freiburg',
+    'TSG Hoffenheim': 'tsg-hoffenheim',
+    '1. FC Union Berlin': '1-fc-union-berlin',
+    'FC Augsburg': 'fc-augsburg',
+    'SV Werder Bremen': 'sv-werder-bremen',
+    '1. FSV Mainz 05': '1-fsv-mainz-05',
+    'VfL Bochum 1848': 'vfl-bochum',
+    '1. FC Heidenheim 1846': '1-fc-heidenheim',
+    'FC St. Pauli': 'fc-st-pauli',
+    'Holstein Kiel': 'holstein-kiel'
+};
+
+/**
+ * Convert Kicker Schulnote (1.0-6.0) to our rating scale (95-50)
+ * 1.0 = 95 (world class), 3.0 = 75 (good), 5.0 = 55 (poor), 6.0 = 50
+ */
+function kickerNoteToRating(note) {
+    if (!note || note === '-' || note === '\\-') return null;
+    const n = parseFloat(note.replace(',', '.'));
+    if (isNaN(n)) return null;
+    // 1.0 -> 95, 6.0 -> 50 (linear interpolation)
+    return Math.round(95 - (n - 1) * 9);
+}
+
+/**
+ * Fetch squad data from kicker.de for a team
+ * @param {string} teamName - Team name to look up
+ * @param {string} season - Season string like "2025-26"
+ */
+async function fetchKickerSquad(teamName, season = '2025-26') {
+    const slug = KICKER_TEAM_SLUGS[teamName];
+    if (!slug) {
+        console.log(`[Kicker] No slug for team: ${teamName}`);
+        return [];
+    }
+
+    const url = `https://www.kicker.de/${slug}/kader/bundesliga/${season}`;
+    console.log(`[Kicker] Fetching: ${url}`);
+
+    try {
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8'
+            },
+            timeout: 10000
+        });
+
+        const html = response.data;
+        const players = [];
+
+        // Parse player rows from HTML tables
+        // Looking for pattern: name, nation, age, games, goals, note
+        const tableRegex = /<tr[^>]*>[\s\S]*?<td[^>]*>(\d+)<\/td>[\s\S]*?<a[^>]*>[\s\S]*?\*\*([^*]+)\*\*\s*([^<]+)<\/a>[\s\S]*?<td[^>]*>(\d+)[^<]*<\/td>[\s\S]*?<td[^>]*>([^<]*)<\/td>[\s\S]*?<td[^>]*>([^<]*)<\/td>[\s\S]*?<td[^>]*>([^<]*)<\/td>/gi;
+
+        // Simpler regex to find player entries
+        const playerRegex = /\*\*([A-Za-zäöüÄÖÜß\-\s]+)\*\*\s+([A-Za-zäöüÄÖÜß\-\s]+)/g;
+        const noteRegex = /(\d[,\.]\d{2})/g;
+
+        // Alternative: Parse the markdown-style content
+        const lines = html.split('\n');
+        let currentSection = '';
+        
+        for (const line of lines) {
+            // Detect position sections
+            if (line.includes('## Tor')) currentSection = 'GK';
+            else if (line.includes('## Abwehr')) currentSection = 'DEF';
+            else if (line.includes('## Mittelfeld')) currentSection = 'MID';
+            else if (line.includes('## Sturm')) currentSection = 'FW';
+            else if (line.includes('## Außerdem') || line.includes('## Trainer')) currentSection = '';
+
+            // Look for player pattern: | Nr. | **Name** Vorname |
+            const playerMatch = line.match(/\|\s*(\d+)\s*\|\s*\[?\*\*([^*]+)\*\*\s*([^\]|]+)/);
+            if (playerMatch && currentSection) {
+                const [, number, lastName, firstName] = playerMatch;
+                const fullName = `${firstName.trim()} ${lastName.trim()}`;
+                
+                // Find note in same line (pattern: | 3,27 | or similar)
+                const noteMatch = line.match(/\|\s*(\d[,\.]\d{2})\s*\|?\s*$/);
+                const note = noteMatch ? noteMatch[1] : null;
+                const rating = kickerNoteToRating(note);
+
+                // Find goals
+                const goalsMatch = line.match(/\|\s*(\d+)\s*\|\s*(\d+)\s*\|/);
+                const goals = goalsMatch ? parseInt(goalsMatch[2]) : 0;
+
+                players.push({
+                    name: fullName,
+                    position: currentSection,
+                    number: parseInt(number),
+                    kickerNote: note,
+                    rating: rating || 70, // Default if no note
+                    goals: goals
+                });
+            }
+        }
+
+        console.log(`[Kicker] Found ${players.length} players for ${teamName}`);
+        return players;
+
+    } catch (error) {
+        console.error(`[Kicker] Error fetching ${teamName}:`, error.message);
+        return [];
+    }
+}
+
+/**
+ * Fetch all Bundesliga squads from kicker.de
+ */
+async function fetchAllKickerSquads() {
+    const allSquads = {};
+    const teams = Object.keys(KICKER_TEAM_SLUGS);
+    
+    console.log(`[Kicker] Fetching ${teams.length} Bundesliga squads...`);
+    
+    for (const teamName of teams) {
+        const players = await fetchKickerSquad(teamName);
+        if (players.length > 0) {
+            allSquads[teamName] = players;
+        }
+        // Rate limit - wait 1 second between requests
+        await sleep(1000);
+    }
+
+    console.log(`[Kicker] Completed. Got squads for ${Object.keys(allSquads).length} teams.`);
+    return allSquads;
+}
+
 module.exports = {
     updateAllData,
     fetchFootballData,
     fetchFixtures,
-    fetchRealPlayers
+    fetchRealPlayers,
+    getPlayerRating,
+    marketValueToRating,
+    fetchKickerSquad,
+    fetchAllKickerSquads,
+    kickerNoteToRating
 };
 
 if (require.main === module) {
-    // Initialize database first when running standalone
+    const force = process.argv.includes('--force');
     db.initDb().then(() => {
-        updateAllData().then(() => {
+        updateAllData({ force }).then((result) => {
+            if (result?.skipped) console.log(result.message);
             process.exit(0);
         }).catch(err => {
             console.error('Update failed:', err);

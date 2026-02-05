@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { prisma } = require('./db');
@@ -24,8 +25,8 @@ function createWindow() {
         width: 1400,
         height: 900,
         webPreferences: {
-            nodeIntegration: true, // Keeping existing config
-            contextIsolation: false, // Keeping existing config
+            nodeIntegration: false,
+            contextIsolation: true,
             preload: path.join(__dirname, 'preload.js'),
         },
         title: "BetBrain",
@@ -286,26 +287,28 @@ ipcMain.handle('get-data', async (event, category) => {
                     ]
                 });
 
-                const mappedTeams = standings.map(s => ({
-                    ...s.team,
-                    id: Number(s.team.id), // Ensure Number
-                    logo: s.team.logo,
-                    group: s.groupName || 'League',
-                    points: s.points,
-                    form: [],
-                    stats: {
-                        played: s.played,
-                        wins: s.wins,
-                        draws: s.draws,
-                        losses: s.losses,
-                        gf: s.gf,
-                        ga: s.ga
-                    }
-                }));
+                const mappedTeams = standings
+                    .filter(s => s.team != null)
+                    .map(s => ({
+                        ...s.team,
+                        id: Number(s.team.id),
+                        logo: s.team.logo,
+                        group: s.groupName || 'League',
+                        points: s.points,
+                        form: [],
+                        stats: {
+                            played: s.played,
+                            wins: s.wins,
+                            draws: s.draws,
+                            losses: s.losses,
+                            gf: s.gf,
+                            ga: s.ga
+                        }
+                    }));
 
                 result.leagues.push({
                     ...l,
-                    id: Number(l.id), // Ensure Number
+                    id: Number(l.id),
                     teams: mappedTeams
                 });
             }
@@ -329,54 +332,86 @@ ipcMain.handle('get-data', async (event, category) => {
 });
 
 ipcMain.handle('get-fixtures', async (event, { leagueId, matchday }) => {
+    const lid = typeof leagueId === 'string' ? parseInt(leagueId, 10) : leagueId;
+    if (isNaN(lid)) {
+        return { currentMatchday: 1, minMatchday: 1, maxMatchday: 34, matches: [] };
+    }
+
     const bounds = await prisma.match.aggregate({
-        where: { leagueId: leagueId },
+        where: { leagueId: lid },
         _min: { matchday: true },
         _max: { matchday: true }
     });
 
     let targetMatchday = matchday;
     if (!targetMatchday) {
-        const next = await prisma.match.findFirst({
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        // 1. Next future match (playedAt >= now) -> current matchday
+        const nextFuture = await prisma.match.findFirst({
             where: {
-                leagueId: leagueId,
+                leagueId: lid,
                 status: 'scheduled',
-                playedAt: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) }
+                playedAt: { gte: now }
             },
             orderBy: { playedAt: 'asc' },
             select: { matchday: true }
         });
-
-        if (next) {
-            targetMatchday = next.matchday;
+        if (nextFuture) {
+            targetMatchday = nextFuture.matchday;
         } else {
-            const last = await prisma.match.findFirst({
-                where: { leagueId: leagueId, status: 'finished' },
+            // 2. Match in last 7 days (running matchday)
+            const recent = await prisma.match.findFirst({
+                where: {
+                    leagueId: lid,
+                    playedAt: { gte: sevenDaysAgo }
+                },
                 orderBy: { playedAt: 'desc' },
                 select: { matchday: true }
             });
-            targetMatchday = last?.matchday || bounds._min?.matchday || 1;
+            if (recent) {
+                targetMatchday = recent.matchday;
+            } else {
+                // 3. Fallback: last finished or min
+                const last = await prisma.match.findFirst({
+                    where: { leagueId: lid, status: 'finished' },
+                    orderBy: { playedAt: 'desc' },
+                    select: { matchday: true }
+                });
+                targetMatchday = last?.matchday ?? bounds._min?.matchday ?? 1;
+            }
         }
     }
 
     const matches = await prisma.match.findMany({
-        where: { leagueId: leagueId, matchday: targetMatchday },
+        where: { leagueId: lid, matchday: targetMatchday },
         include: { homeTeam: true, awayTeam: true },
         orderBy: { playedAt: 'asc' }
     });
 
     return {
-        currentMatchday: targetMatchday,
-        minMatchday: bounds._min?.matchday || 1,
-        maxMatchday: bounds._max?.matchday || 34,
+        currentMatchday: targetMatchday ?? 1,
+        minMatchday: bounds._min?.matchday ?? 1,
+        maxMatchday: bounds._max?.matchday ?? 34,
         matches: matches.map(m => ({
             id: m.id,
             leagueId: m.leagueId,
             matchday: m.matchday,
             date: m.playedAt,
             status: m.status,
-            home: { id: m.homeTeamId, name: m.homeTeam.name, logo: m.homeTeam.logo },
-            away: { id: m.awayTeamId, name: m.awayTeam.name, logo: m.awayTeam.logo },
+            home: {
+                id: m.homeTeamId ?? 0,
+                name: m.homeTeam?.name ?? 'TBD',
+                logo: m.homeTeam?.logo ?? null,
+                short_name: m.homeTeam?.shortName ?? m.homeTeam?.name ?? 'TBD'
+            },
+            away: {
+                id: m.awayTeamId ?? 0,
+                name: m.awayTeam?.name ?? 'TBD',
+                logo: m.awayTeam?.logo ?? null,
+                short_name: m.awayTeam?.shortName ?? m.awayTeam?.name ?? 'TBD'
+            },
             homeScore: m.homeScore,
             awayScore: m.awayScore
         }))
@@ -812,6 +847,46 @@ ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
         const homeDetails = { ...homeStrength, form: await getTeamForm(homeId, 5) };
         const awayDetails = { ...awayStrength, form: await getTeamForm(awayId, 5) };
 
+        // Fetch standings for both teams
+        const homeStanding = await prisma.standing.findFirst({
+            where: { teamId: homeId, season: CURRENT_SEASON_STR }
+        });
+        const awayStanding = await prisma.standing.findFirst({
+            where: { teamId: awayId, season: CURRENT_SEASON_STR }
+        });
+
+        const standings = {
+            home: homeStanding ? {
+                position: homeStanding.position,
+                points: homeStanding.points,
+                played: homeStanding.played
+            } : { position: '?', points: 0, played: 0 },
+            away: awayStanding ? {
+                position: awayStanding.position,
+                points: awayStanding.points,
+                played: awayStanding.played
+            } : { position: '?', points: 0, played: 0 }
+        };
+
+        // Fetch top players for both teams
+        const homePlayers = await prisma.player.findMany({
+            where: { teamId: homeId },
+            orderBy: { rating: 'desc' },
+            take: 5,
+            select: { name: true, rating: true, position: true }
+        });
+        const awayPlayers = await prisma.player.findMany({
+            where: { teamId: awayId },
+            orderBy: { rating: 'desc' },
+            take: 5,
+            select: { name: true, rating: true, position: true }
+        });
+
+        const topPlayers = {
+            home: homePlayers,
+            away: awayPlayers
+        };
+
         const h2h = await prisma.match.findMany({
             where: {
                 OR: [
@@ -839,7 +914,8 @@ ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
         }
 
         const context = {
-            home, away, odds, homeDetails, awayDetails, h2h, injuries: injuryText
+            home, away, odds, homeDetails, awayDetails, h2h, injuries: injuryText,
+            standings, topPlayers
         };
 
         return await aiBridge.generateExpertAnalysis(context);

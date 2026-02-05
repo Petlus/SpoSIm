@@ -8,11 +8,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "update-data": "node electron/data_fetcher.js"
+    "update-data": "node electron/data_fetcher.js",
+    "update-data:force": "node electron/data_fetcher.js --force",
+    "reset-db": "node electron/reset_db.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "axios": "^1.13.4",
+    "dotenv": "^17.2.3",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "react": "19.2.3",
