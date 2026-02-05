@@ -1,6 +1,7 @@
 {
   "name": "betbrain",
   "version": "1.1.0",
+  "description": "Sports simulation with AI-powered match analysis for football leagues",
   "private": true,
   "main": "electron/index.js",
   "author": "BetBrain",

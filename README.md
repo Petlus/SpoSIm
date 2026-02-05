@@ -1,62 +1,57 @@
 # BetBrain
 
-**Sports Simulation** – Desktop app for football and F1 simulation with AI-powered match analysis.
+**Next-gen sports simulation** – Simulate matches, explore real-world data, and get AI-powered predictions – all in one desktop app.
 
-## Tech Stack
+---
 
-- **Frontend:** Next.js 16, React 19, Tailwind CSS 4
-- **Desktop:** Electron 40
-- **Database:** SQLite (Prisma ORM)
-- **Data:** football-data.org, api-football.com, F1 API
-- **AI:** Ollama (local LLM for match predictions)
+## What BetBrain Does
 
-## Features
+BetBrain combines **live football data** with **match simulation** and **local AI analysis**. Pick a league, browse fixtures, simulate outcomes, and let an AI assistant break down the odds – no cloud, no subscriptions.
 
-- **Football:** Bundesliga, Premier League, La Liga, Serie A, Ligue 1, Champions League
-- **Match simulation:** Elo-based engine with form, injuries, home advantage
-- **AI analysis:** Ollama integration for expert predictions (optional setup)
-- **F1:** Data models ready, simulation in development
+### Football Simulation
 
-## Getting Started
+- **Leagues:** Bundesliga, Premier League, La Liga, Serie A, Ligue 1, Champions League, Europa League, Conference League  
+- **Match engine:** Elo ratings, form, injuries, home advantage  
+- **Simulate** single matches or full matchdays  
+- **Tournament mode:** Knockout rounds with aggregate scores and away-goals logic  
 
-```bash
-npm install
-cp .env.example .env   # Add your API keys to .env
-npm run dev
-```
+### Real-World Data (ESPN)
 
-This starts the Next.js dev server and launches the Electron window. The app runs at `http://localhost:3000` inside Electron.
+- **Live scores** and standings  
+- **News** and match summaries  
+- **Golden Boot** – top scorers with goals and assists  
+- **Team rosters** with player stats  
+- **Odds** from real bookmakers  
 
-## Scripts
+### AI Analysis (Ollama)
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start Next.js + Electron |
-| `npm run build` | Build Next.js for production |
-| `npm run update-data` | Fetch latest data from APIs (respects 24h limit) |
-| `npm run update-data:force` | Force full API refresh (bypasses 24h limit) |
-| `npm run reset-db` | Reset database and reseed |
+- **Local LLM** – runs on your machine, no data leaves your PC  
+- **Match predictions** – form, H2H, standings, injuries  
+- **Betting tips** – suggested bets with reasoning  
+- Optional setup – app works fully without AI  
 
-## API Rate Limits
+### Search & Navigation
 
-To stay within free-tier limits (e.g. 100 requests/day), API data is cached in the database:
+- **Global search** – find teams, leagues, or players from the topbar  
+- **Quick links** – jump to team pages, league dashboards, or player profiles  
 
-- **24h cooldown:** No API calls if data was updated in the last 24 hours
-- **Players:** Only fetched for teams that have no players yet
-- **Fixtures:** Always fetched on each sync (6 API calls) to keep schedules current
-- Use `npm run update-data:force` to force a full refresh when needed
+### Settings
 
-## Project Structure
+- **Data sync** – refresh leagues, standings, logos, player ratings  
+- **Check for updates** – built-in updater for new versions  
+- **Ollama status** – see if AI is ready, start the service if needed  
 
-```
-├── app/           # Next.js App Router (pages, components)
-├── config/        # Central config (e.g. season)
-├── data/          # SQLite database
-├── electron/      # Main process, IPC, simulation, data sync
-├── prisma/        # Schema
-└── public/        # Static assets
-```
+---
 
-## Season Configuration
+## Tech
 
-The current season is defined in `config/season.js`. Update `CURRENT_SEASON_YEAR` when starting a new season.
+- **Desktop:** Electron  
+- **Frontend:** Next.js, React, Tailwind  
+- **Data:** SQLite, ESPN API, football-data.org  
+- **AI:** Ollama (local)  
+
+---
+
+## Links
+
+- [GitHub](https://github.com/Petlus/SpoSIm)
