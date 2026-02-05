@@ -24,6 +24,13 @@ import sys
 import time
 from pathlib import Path
 
+# Fix Unicode output on Windows (e.g. Plzeň, Brøndby)
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 try:
     import requests
 except ImportError:
