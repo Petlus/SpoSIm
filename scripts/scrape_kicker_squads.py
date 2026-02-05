@@ -43,6 +43,9 @@ LEAGUE_PATH_MAP = {
     "premier_league": "premier-league",
     "serie_a": "serie-a",
     "ligue_1": "ligue-1",
+    "champions_league": "champions-league",
+    "europa_league": "europa-league",
+    "conference_league": "europa-conference-league",
 }
 
 # Teams in 2. Bundesliga (different URL path)
@@ -277,7 +280,7 @@ def scrape_team_playwright(page, slug: str, league: str) -> list[dict]:
 def main() -> int:
     import argparse
     ap = argparse.ArgumentParser(description="Scrape Kicker squad data for football teams")
-    ap.add_argument("--league", default="all", help="bundesliga | la_liga | premier_league | all")
+    ap.add_argument("--league", default="all", help="bundesliga | la_liga | premier_league | serie_a | ligue_1 | champions_league | europa_league | conference_league | all")
     ap.add_argument("--requests", action="store_true", help="Use requests instead of Playwright")
     ap.add_argument("--limit", type=int, default=0, help="Process only first N teams per league")
     args = ap.parse_args()
@@ -288,7 +291,7 @@ def main() -> int:
     elif league_arg in LEAGUE_PATH_MAP:
         league_folders = [league_arg]
     else:
-        print(f"Error: Unknown league '{league_arg}'. Use: bundesliga, la_liga, premier_league, all")
+        print(f"Error: Unknown league '{league_arg}'. Use: bundesliga, la_liga, premier_league, serie_a, ligue_1, champions_league, europa_league, conference_league, all")
         return 1
 
     use_requests = args.requests or os.environ.get("KICKER_USE_REQUESTS", "").lower() in ("1", "true", "yes")

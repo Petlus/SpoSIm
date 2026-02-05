@@ -6,13 +6,19 @@ const premierLeague = require('./premier_league');
 const laLiga = require('./la_liga');
 const serieA = require('./serie_a');
 const ligue1 = require('./ligue_1');
+const championsLeague = require('./champions_league');
+const europaLeague = require('./europa_league');
+const conferenceLeague = require('./conference_league');
 
 const leagues = {
     BL1: bundesliga,
     PL: premierLeague,
     PD: laLiga,
     SA: serieA,
-    FL1: ligue1
+    FL1: ligue1,
+    CL: championsLeague,
+    EL: europaLeague,
+    ECL: conferenceLeague
 };
 
 /**
@@ -49,6 +55,13 @@ function kickerToRating(note) {
 module.exports = {
     leagues,
     bundesliga,
+    premierLeague,
+    laLiga,
+    serieA,
+    ligue1,
+    championsLeague,
+    europaLeague,
+    conferenceLeague,
     getTeamData,
     getSquad,
     kickerToRating

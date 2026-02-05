@@ -4,7 +4,14 @@ This folder contains squad data for leagues, used as fallback when API player da
 
 ## Structure
 
-- `bundesliga/` – Bundesliga teams with `squad` arrays
+- `bundesliga/` – Bundesliga (18 teams)
+- `premier_league/` – Premier League (20 teams)
+- `la_liga/` – La Liga (20 teams)
+- `serie_a/` – Serie A (20 teams)
+- `ligue_1/` – Ligue 1 (18 teams)
+- `champions_league/` – Champions League (36 teams, League Phase)
+- `europa_league/` – Europa League (36 teams, League Phase)
+- `conference_league/` – Conference League (24 teams, League Phase)
 - Each team: `{ name, position, kickerNote, goals }`
 - `kickerNote`: Kicker.de scale (1.0 = best, 6.0 = worst)
 - `kickerToRating()` converts to 95–50 rating scale
@@ -38,11 +45,11 @@ pip install -r requirements.txt
 python scripts/scrape_kicker_squads.py --requests
 ```
 
-- `--league NAME` – `bundesliga` | `la_liga` | `premier_league` | `all` (default: all)
+- `--league NAME` – `bundesliga` | `la_liga` | `premier_league` | `serie_a` | `ligue_1` | `champions_league` | `europa_league` | `conference_league` | `all` (default: all)
 - `--requests` – Use HTTP requests (recommended, faster)
 - `--limit N` – Only process first N teams per league
 
-The script reads `kickerSlug` from each team file, fetches the Kicker squad page, and overwrites the `squad` array with scraped data. Supports Bundesliga, La Liga, Premier League, Serie A, and Ligue 1.
+The script reads `kickerSlug` from each team file, fetches the Kicker squad page, and overwrites the `squad` array with scraped data. Supports Bundesliga, La Liga, Premier League, Serie A, Ligue 1, Champions League, Europa League, and Conference League.
 
 ## Manual Updates
 
