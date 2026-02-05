@@ -169,6 +169,31 @@ export interface EspnLeague {
     internalId: number;
 }
 
+export interface EspnRosterPlayer {
+    espnId: string;
+    name: string;
+    firstName: string;
+    lastName: string;
+    age: number | null;
+    jersey: string | null;
+    position: 'GK' | 'DEF' | 'MID' | 'FWD' | 'SUB';
+    positionName: string;
+    citizenship: string;
+    headshot: string | null;
+    injured: boolean;
+    appearances: number;
+    subIns: number;
+    goals: number;
+    assists: number;
+    shots: number;
+    shotsOnTarget: number;
+    yellowCards: number;
+    redCards: number;
+    foulsCommitted: number;
+    saves: number;
+    goalsConceded: number;
+}
+
 export interface ElectronAPI {
     getAppVersion: () => Promise<string>;
     getData: (category: 'football' | 'f1') => Promise<unknown>;
@@ -200,7 +225,61 @@ export interface ElectronAPI {
     simulateSingleMatch: (matchId: number) => Promise<{ homeGoals: number; awayGoals: number }>;
     simulateF1Race: (trackId: string) => Promise<unknown>;
     getMatchOdds: (homeId: number, awayId: number) => Promise<unknown>;
-    getAdvancedAnalysis: (homeId: number, awayId: number) => Promise<unknown>;
+    getAdvancedAnalysis: (homeId: number, awayId: number) => Promise<{
+        odds: { homeWinProb: number; drawProb: number; awayWinProb: number };
+        home: {
+            id: number;
+            name: string;
+            form: string[];
+            formFactor: number;
+            scorers: { name: string; goals: number }[];
+            injuries: { name: string; position: string }[];
+        };
+        away: {
+            id: number;
+            name: string;
+            form: string[];
+            formFactor: number;
+            scorers: { name: string; goals: number }[];
+            injuries: { name: string; position: string }[];
+        };
+        h2h: { homeScore: number; awayScore: number }[];
+        espn?: {
+            homeStanding: {
+                rank: number;
+                points: number;
+                played: number;
+                wins: number;
+                draws: number;
+                losses: number;
+                goalsFor: number;
+                goalsAgainst: number;
+                goalDifference: number;
+                ppg: number;
+                overallRecord: string;
+            } | null;
+            awayStanding: {
+                rank: number;
+                points: number;
+                played: number;
+                wins: number;
+                draws: number;
+                losses: number;
+                goalsFor: number;
+                goalsAgainst: number;
+                goalDifference: number;
+                ppg: number;
+                overallRecord: string;
+            } | null;
+            homeForm: string;
+            awayForm: string;
+            homeRecentResults: { opponent: string; score: string; result: string; date: string; isHome: boolean }[];
+            awayRecentResults: { opponent: string; score: string; result: string; date: string; isHome: boolean }[];
+            h2h: { id: string; date: string; name: string; score: string }[];
+            odds: { provider: string; details: string; overUnder: number; spread: number; homeMoneyLine: number; awayMoneyLine: number }[];
+        };
+        error?: string;
+    }>;
     getTeamDetails: (teamId: number) => Promise<unknown>;
     checkOllamaStatus: () => Promise<{
         installed: boolean;
@@ -234,6 +313,8 @@ export interface ElectronAPI {
     espnGetTeamId: (internalId: number) => Promise<number | null>;
     espnSyncLogos: () => Promise<{ success: boolean; count?: number; error?: string }>;
     espnSyncStandings: () => Promise<{ success: boolean; count?: number; error?: string }>;
+    espnSyncPlayerRatings: () => Promise<{ success: boolean; updated?: number; errors?: number; error?: string }>;
+    espnGetTeamRoster: (league: string, espnTeamId: string) => Promise<EspnRosterPlayer[]>;
 
     on: (
         channel: string,

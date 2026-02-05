@@ -5,6 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, User, Shield, Activity, Star, Trophy, Target, Sparkles, TrendingUp, Calendar, Clock, Globe, RefreshCw, ChevronRight } from 'lucide-react';
 import type { EspnScore } from '../../../../types/electron';
 
+function toScoreStr(s: unknown): string {
+    if (typeof s === 'string') return s;
+    if (s && typeof s === 'object' && 'displayValue' in s) return String((s as { displayValue?: unknown }).displayValue ?? '');
+    if (s && typeof s === 'object' && 'value' in s) return String((s as { value?: unknown }).value ?? '');
+    return '-';
+}
+
 export default function TeamPageClient() {
     const { teamId } = useParams();
     const router = useRouter();
@@ -250,8 +257,8 @@ export default function TeamPageClient() {
                                         {espnSchedule.filter(e => e.isCompleted).map(ev => {
                                             const teamInternalId = parseInt(teamId as string);
                                             const isHome = ev.home.internalId === teamInternalId;
-                                            const teamScore = isHome ? ev.home.score : ev.away.score;
-                                            const opponentScore = isHome ? ev.away.score : ev.home.score;
+                                            const teamScore = toScoreStr(isHome ? ev.home.score : ev.away.score);
+                                            const opponentScore = toScoreStr(isHome ? ev.away.score : ev.home.score);
                                             const won = parseInt(teamScore) > parseInt(opponentScore);
                                             const drew = teamScore === opponentScore;
                                             return (
@@ -268,7 +275,7 @@ export default function TeamPageClient() {
                                                             <span className={`text-sm font-medium truncate ${ev.home.winner ? 'text-white font-bold' : 'text-slate-400'}`}>{ev.home.name}</span>
                                                         </div>
                                                         <div className="flex-shrink-0 px-3">
-                                                            <span className="font-mono font-bold text-white">{ev.home.score} - {ev.away.score}</span>
+                                                            <span className="font-mono font-bold text-white">{toScoreStr(ev.home.score)} - {toScoreStr(ev.away.score)}</span>
                                                         </div>
                                                         <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
                                                             <span className={`text-sm font-medium truncate ${ev.away.winner ? 'text-white font-bold' : 'text-slate-400'}`}>{ev.away.name}</span>

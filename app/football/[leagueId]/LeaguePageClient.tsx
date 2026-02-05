@@ -43,7 +43,7 @@ export default function LeaguePageClient() {
     const [loading, setLoading] = useState(true);
     const [noElectron, setNoElectron] = useState(false);
     const [simulating, setSimulating] = useState(false);
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures' | 'espn-standings' | 'espn-fixtures' | 'espn-match'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures' | 'espn-match'>('dashboard');
     const [activeGroup, setActiveGroup] = useState<string | null>(null);
     const [fixtures, setFixtures] = useState<any[]>([]);
     const [loadingOdds, setLoadingOdds] = useState(false);
@@ -146,15 +146,15 @@ export default function LeaguePageClient() {
         finally { setLoadingMatchDetail(false); }
     }, [espnLeagueCode, loadEspnLeagueCode]);
 
-    // Auto-load ESPN data when switching to ESPN tabs
+    // Auto-load ESPN data when switching to standings/fixtures tabs
     useEffect(() => {
-        if (activeTab === 'espn-standings' && espnStandings.length === 0) loadEspnStandings();
-        if (activeTab === 'espn-fixtures' && espnScores.length === 0) loadEspnScores();
+        if (activeTab === 'standings' && espnStandings.length === 0) loadEspnStandings();
+        if (activeTab === 'fixtures' && espnScores.length === 0) loadEspnScores();
     }, [activeTab]);
 
-    // Auto-refresh ESPN scores every 30s
+    // Auto-refresh ESPN scores every 30s when on fixtures tab
     useEffect(() => {
-        if (activeTab !== 'espn-fixtures') return;
+        if (activeTab !== 'fixtures') return;
         const iv = setInterval(loadEspnScores, 30000);
         return () => clearInterval(iv);
     }, [activeTab, loadEspnScores]);
@@ -360,17 +360,10 @@ export default function LeaguePageClient() {
                             <Activity size={16} /> Dashboard
                         </button>
                         <button onClick={() => setActiveTab('standings')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'standings' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                            <Trophy size={16} /> Sim Table
+                            <Trophy size={16} /> Table
                         </button>
                         <button onClick={() => setActiveTab('fixtures')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'fixtures' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                            <Calendar size={16} /> Sim Matches
-                        </button>
-                        <div className="w-px bg-white/10 mx-1 self-stretch" />
-                        <button onClick={() => setActiveTab('espn-standings')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'espn-standings' ? 'bg-emerald-600/30 text-emerald-400 shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                            <Globe size={16} /> Real Table
-                        </button>
-                        <button onClick={() => setActiveTab('espn-fixtures')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'espn-fixtures' ? 'bg-emerald-600/30 text-emerald-400 shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                            <Zap size={16} /> Real Matches
+                            <Calendar size={16} /> Matches
                         </button>
                     </div>
                     <button onClick={runSimulate} disabled={simulating} className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-xl font-bold text-white text-sm shadow-lg shadow-emerald-900/20 transition-all disabled:opacity-50 flex items-center gap-2 border border-emerald-500/20">
@@ -489,8 +482,8 @@ export default function LeaguePageClient() {
                 </div>
             )}
 
-            {/* Group Tabs (Only show on Standings) */}
-            {uniqueGroups.length > 1 && activeTab === 'standings' && (
+            {/* Group Tabs (Only show on Standings when no ESPN data) */}
+            {uniqueGroups.length > 1 && activeTab === 'standings' && espnStandings.length === 0 && (
                 <div className="flex gap-2 overflow-x-auto pb-3 mb-4">
                     {uniqueGroups.map((g: any) => (
                         <button key={g} onClick={() => setActiveGroup(g)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${group === g ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>
@@ -500,208 +493,32 @@ export default function LeaguePageClient() {
                 </div>
             )}
 
-
-            {/* Standings Table */}
+            {/* Unified Standings Table (ESPN primary, Sim fallback) */}
             {activeTab === 'standings' && (
-                <div className="glass-card overflow-hidden">
-                    <table className="data-table">
-                        <thead>
-                            <tr>
-                                <th className="w-10">#</th>
-                                <th>Team</th>
-                                <th className="text-center w-24">Form</th>
-                                <th className="text-center">MP</th>
-                                <th className="text-center">W</th>
-                                <th className="text-center">D</th>
-                                <th className="text-center">L</th>
-                                <th className="text-center">GD</th>
-                                <th className="text-center">Pts</th>
-                                <th className="text-center">PWR</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredTeams.map((team: any, index: number) => {
-                                const pwr = calcPowerRating(team);
-                                const gd = (team.stats?.gf || 0) - (team.stats?.ga || 0);
-                                return (
-                                    <tr key={team.id}>
-                                        <td className="text-slate-500 font-mono">{index + 1}</td>
-                                        <td className="font-semibold flex items-center gap-3">
-                                            <div className="w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                {team.logo ? <img src={team.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
-                                            </div>
-                                            <a href={`/football/team/${team.id}`} className="text-slate-100 truncate hover:text-emerald-400 hover:underline decoration-emerald-500/50 underline-offset-4 transition-all">
-                                                {team.name}
-                                            </a>
-                                        </td>
-                                        <td className="text-center">
-                                            <div className="flex items-center justify-center gap-1">
-                                                {(team.form || []).slice(0, 5).map((r: string, i: number) => <FormDot key={i} result={r} />)}
-                                                {(!team.form || team.form.length === 0) && <span className="text-slate-600 text-xs">-</span>}
-                                            </div>
-                                        </td>
-                                        <td className="text-center text-slate-400 font-mono">{team.stats?.played || 0}</td>
-                                        <td className="text-center text-slate-400 font-mono">{team.stats?.wins || 0}</td>
-                                        <td className="text-center text-slate-400 font-mono">{team.stats?.draws || 0}</td>
-                                        <td className="text-center text-slate-400 font-mono">{team.stats?.losses || 0}</td>
-                                        <td className={`text-center font-mono font-medium ${gd > 0 ? 'text-emerald-400' : gd < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
-                                            {gd > 0 ? `+${gd}` : gd}
-                                        </td>
-                                        <td className="text-center font-bold text-white font-mono">{team.points}</td>
-                                        <td className="text-center">
-                                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold font-mono ${pwr >= 70 ? 'bg-emerald-500/20 text-emerald-400' : pwr >= 50 ? 'bg-sky-500/20 text-sky-400' : 'bg-rose-500/20 text-rose-400'}`}>
-                                                {pwr}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-
-            {/* Fixtures Tab */}
-            {activeTab === 'fixtures' && (
-                <div className="space-y-4">
-                    {/* Matchday Navigation */}
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => goToMatchday(currentMatchday - 1)}
-                                disabled={currentMatchday <= minMatchday}
-                                className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                <ChevronLeft size={18} />
-                            </button>
-                            <div className="text-center px-4 py-1.5 bg-slate-800/50 rounded-lg border border-slate-700">
-                                <div className="text-xs text-slate-400 uppercase tracking-wider">Matchday</div>
-                                <div className="text-lg font-bold text-white">{currentMatchday}</div>
-                            </div>
-                            <button
-                                onClick={() => goToMatchday(currentMatchday + 1)}
-                                disabled={currentMatchday >= maxMatchday}
-                                className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                <ChevronRight size={18} />
-                            </button>
-                        </div>
-                        <div className="flex items-center gap-3 text-sm text-slate-400">
-                            <span className="flex items-center gap-1.5">
-                                <Calendar size={14} />
-                                Monte-Carlo Odds (1000 Runs)
-                            </span>
-                            {loadingOdds && <span className="flex items-center gap-2"><RefreshCw className="animate-spin" size={14} /> Calculating...</span>}
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {fixtures.length === 0 ? (
-                            <div className="col-span-full glass-card p-8 text-center text-slate-400">
-                                <Calendar size={32} className="mx-auto mb-3 opacity-50" />
-                                <p className="font-medium">No fixtures for matchday {currentMatchday}</p>
-                                <p className="text-sm mt-1">Run <code className="bg-slate-800 px-2 py-0.5 rounded">npm run update-data</code> to fetch fixtures from the API.</p>
-                            </div>
-                        ) : fixtures.map((f, i) => (
-                            <div key={i} className="glass-card p-4">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                                        <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
-                                            {f.home.logo ? <img src={f.home.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
-                                        </div>
-                                        {f.home.id ? (
-                                            <a href={`/football/team/${f.home.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
-                                                {f.home.short_name || f.home.name}
-                                            </a>
-                                        ) : (
-                                            <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
-                                        )}
-                                    </div>
-                                    <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
-                                    <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
-                                        {f.away.id ? (
-                                            <a href={`/football/team/${f.away.id}`} className="font-semibold text-white text-sm truncate hover:text-emerald-400 transition-colors">
-                                                {f.away.short_name || f.away.name}
-                                            </a>
-                                        ) : (
-                                            <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
-                                        )}
-                                        <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
-                                            {f.away.logo ? <img src={f.away.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Probability Bar */}
-                                {f.odds ? (
-                                    <div>
-                                        <div className="flex justify-between text-xs mb-1.5 font-mono">
-                                            <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {f.odds.homeWinProb}%</span>
-                                            <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {f.odds.drawProb}%</span>
-                                            <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {f.odds.awayWinProb}%</span>
-                                        </div>
-                                        <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
-                                            <div className="bg-emerald-500" style={{ width: `${f.odds.homeWinProb}%` }}></div>
-                                            <div className="bg-slate-500" style={{ width: `${f.odds.drawProb}%` }}></div>
-                                            <div className="bg-rose-500" style={{ width: `${f.odds.awayWinProb}%` }}></div>
-                                        </div>
-                                        <button onClick={() => openInsights(f.home, f.away)} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
-                                            <BarChart3 size={12} /> View Insights
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <button
-                                        onClick={() => predictMatch(i, f.home.id, f.away.id)}
-                                        disabled={f.loadingOdds || !f.home.id || !f.away.id}
-                                        className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70"
-                                    >
-                                        {f.loadingOdds ? (
-                                            <>
-                                                <RefreshCw className="animate-spin text-emerald-400" size={14} />
-                                                <span className="text-emerald-400">Simulating 1000 Matches...</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Activity size={14} className="text-purple-400" />
-                                                Simulate Prediction (1000 Runs)
-                                            </>
-                                        )}
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* ESPN Real Standings */}
-            {activeTab === 'espn-standings' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
-                            <Globe size={18} className="text-emerald-400" />
-                            <h2 className="text-lg font-bold text-white">Real-World Standings</h2>
-                            <span className="text-[10px] text-slate-500 bg-slate-800 px-2 py-0.5 rounded font-mono">ESPN LIVE</span>
+                            <Trophy size={18} className="text-emerald-400" />
+                            <h2 className="text-lg font-bold text-white">Standings</h2>
+                            {espnStandings.length > 0 && <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono font-bold">ESPN LIVE</span>}
                         </div>
                         <button onClick={loadEspnStandings} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50">
                             <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
                         </button>
                     </div>
-                    {loadingEspn && espnStandings.length === 0 ? (
+                    {loadingEspn && espnStandings.length === 0 && filteredTeams.length === 0 ? (
                         <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
-                            <RefreshCw className="animate-spin" size={20} /> Loading real standings...
+                            <RefreshCw className="animate-spin" size={20} /> Loading standings...
                         </div>
-                    ) : espnStandings.length === 0 ? (
-                        <div className="glass-card p-12 text-center text-slate-400">
-                            <Globe size={32} className="mx-auto mb-3 opacity-50" />
-                            <p>No ESPN standings available for this league.</p>
-                        </div>
-                    ) : (
+                    ) : espnStandings.length > 0 ? (
+                        /* ESPN Primary Table */
                         <div className="glass-card overflow-hidden">
                             <table className="data-table">
                                 <thead>
                                     <tr>
                                         <th className="w-10">#</th>
                                         <th>Team</th>
+                                        <th className="text-center w-20">Form</th>
                                         <th className="text-center">MP</th>
                                         <th className="text-center">W</th>
                                         <th className="text-center">D</th>
@@ -711,11 +528,15 @@ export default function LeaguePageClient() {
                                         <th className="text-center">GD</th>
                                         <th className="text-center">Pts</th>
                                         <th className="text-center">PPG</th>
+                                        <th className="text-center">PWR</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {espnStandings.map((entry, i) => {
                                         const noteColor = entry.note?.color ? `#${entry.note.color}` : undefined;
+                                        // Find sim team data for form dots + power
+                                        const simTeam = data.teams.find((t: any) => t.id === entry.internalId);
+                                        const pwr = simTeam ? calcPowerRating(simTeam) : null;
                                         return (
                                             <tr key={entry.espnId || i} className="group">
                                                 <td className="font-mono text-slate-500 relative">
@@ -739,6 +560,12 @@ export default function LeaguePageClient() {
                                                         </span>
                                                     )}
                                                 </td>
+                                                <td className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {simTeam?.form?.slice(0, 5).map((r: string, fi: number) => <FormDot key={fi} result={r} />)}
+                                                        {(!simTeam?.form || simTeam.form.length === 0) && <span className="text-slate-600 text-xs">-</span>}
+                                                    </div>
+                                                </td>
                                                 <td className="text-center text-slate-400 font-mono">{entry.played}</td>
                                                 <td className="text-center text-slate-400 font-mono">{entry.wins}</td>
                                                 <td className="text-center text-slate-400 font-mono">{entry.draws}</td>
@@ -750,6 +577,13 @@ export default function LeaguePageClient() {
                                                 </td>
                                                 <td className="text-center font-bold text-white font-mono">{entry.points}</td>
                                                 <td className="text-center font-mono text-slate-400">{entry.ppg?.toFixed(2) || '-'}</td>
+                                                <td className="text-center">
+                                                    {pwr !== null ? (
+                                                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold font-mono ${pwr >= 70 ? 'bg-emerald-500/20 text-emerald-400' : pwr >= 50 ? 'bg-sky-500/20 text-sky-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                                                            {pwr}
+                                                        </span>
+                                                    ) : <span className="text-slate-600 text-xs">-</span>}
+                                                </td>
                                             </tr>
                                         );
                                     })}
@@ -772,33 +606,93 @@ export default function LeaguePageClient() {
                                 )}
                             </div>
                         </div>
+                    ) : (
+                        /* Sim Fallback Table */
+                        <div className="glass-card overflow-hidden">
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th className="w-10">#</th>
+                                        <th>Team</th>
+                                        <th className="text-center w-24">Form</th>
+                                        <th className="text-center">MP</th>
+                                        <th className="text-center">W</th>
+                                        <th className="text-center">D</th>
+                                        <th className="text-center">L</th>
+                                        <th className="text-center">GD</th>
+                                        <th className="text-center">Pts</th>
+                                        <th className="text-center">PWR</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredTeams.map((team: any, index: number) => {
+                                        const pwr = calcPowerRating(team);
+                                        const gd = (team.stats?.gf || 0) - (team.stats?.ga || 0);
+                                        return (
+                                            <tr key={team.id}>
+                                                <td className="text-slate-500 font-mono">{index + 1}</td>
+                                                <td className="font-semibold flex items-center gap-3">
+                                                    <div className="w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                        {team.logo ? <img src={team.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                                    </div>
+                                                    <a href={`/football/team/${team.id}`} className="text-slate-100 truncate hover:text-emerald-400 hover:underline decoration-emerald-500/50 underline-offset-4 transition-all">
+                                                        {team.name}
+                                                    </a>
+                                                </td>
+                                                <td className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {(team.form || []).slice(0, 5).map((r: string, i: number) => <FormDot key={i} result={r} />)}
+                                                        {(!team.form || team.form.length === 0) && <span className="text-slate-600 text-xs">-</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="text-center text-slate-400 font-mono">{team.stats?.played || 0}</td>
+                                                <td className="text-center text-slate-400 font-mono">{team.stats?.wins || 0}</td>
+                                                <td className="text-center text-slate-400 font-mono">{team.stats?.draws || 0}</td>
+                                                <td className="text-center text-slate-400 font-mono">{team.stats?.losses || 0}</td>
+                                                <td className={`text-center font-mono font-medium ${gd > 0 ? 'text-emerald-400' : gd < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                                                    {gd > 0 ? `+${gd}` : gd}
+                                                </td>
+                                                <td className="text-center font-bold text-white font-mono">{team.points}</td>
+                                                <td className="text-center">
+                                                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold font-mono ${pwr >= 70 ? 'bg-emerald-500/20 text-emerald-400' : pwr >= 50 ? 'bg-sky-500/20 text-sky-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                                                        {pwr}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                            <div className="px-4 py-2 border-t border-white/5">
+                                <p className="text-[10px] text-slate-600">Simulation data • ESPN data loading...</p>
+                            </div>
+                        </div>
                     )}
                 </div>
             )}
 
-            {/* ESPN Real Fixtures */}
-            {activeTab === 'espn-fixtures' && (
+            {/* Unified Fixtures Tab (ESPN primary, Sim features integrated) */}
+            {activeTab === 'fixtures' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
-                            <Zap size={18} className="text-amber-400" />
-                            <h2 className="text-lg font-bold text-white">Real Matches</h2>
-                            <span className="text-[10px] text-slate-500 bg-slate-800 px-2 py-0.5 rounded font-mono">ESPN LIVE</span>
+                            <Calendar size={18} className="text-amber-400" />
+                            <h2 className="text-lg font-bold text-white">Matches</h2>
+                            {espnScores.length > 0 && <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono font-bold">ESPN LIVE</span>}
                         </div>
-                        <button onClick={loadEspnScores} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50">
-                            <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
-                        </button>
+                        <div className="flex items-center gap-3">
+                            {loadingOdds && <span className="flex items-center gap-2 text-xs text-slate-400"><RefreshCw className="animate-spin" size={14} /> Calculating...</span>}
+                            <button onClick={loadEspnScores} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50">
+                                <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
+                            </button>
+                        </div>
                     </div>
                     {loadingEspn && espnScores.length === 0 ? (
                         <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
-                            <RefreshCw className="animate-spin" size={20} /> Loading real matches...
+                            <RefreshCw className="animate-spin" size={20} /> Loading matches...
                         </div>
-                    ) : espnScores.length === 0 ? (
-                        <div className="glass-card p-12 text-center text-slate-400">
-                            <Calendar size={32} className="mx-auto mb-3 opacity-50" />
-                            <p>No upcoming or recent matches found.</p>
-                        </div>
-                    ) : (
+                    ) : espnScores.length > 0 ? (
+                        /* ESPN Primary Fixtures */
                         <div className="space-y-6">
                             {/* Live Matches */}
                             {espnScores.filter(s => s.isLive).length > 0 && (
@@ -835,6 +729,81 @@ export default function LeaguePageClient() {
                                 </div>
                             )}
 
+                            {/* Scheduled Matches (with Predict buttons) */}
+                            {espnScores.filter(s => s.statusState === 'pre').length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <Clock size={14} /> Upcoming
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {espnScores.filter(s => s.statusState === 'pre').map((score, si) => {
+                                            const homeInternalId = score.home.internalId;
+                                            const awayInternalId = score.away.internalId;
+                                            // Find fixture index in sim fixtures for prediction (by matching internal IDs)
+                                            const simFixIdx = fixtures.findIndex(f => f.home.id === homeInternalId && f.away.id === awayInternalId);
+                                            const simFix = simFixIdx >= 0 ? fixtures[simFixIdx] : null;
+                                            return (
+                                                <div key={score.id} className="glass-card p-4">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-[10px] text-slate-500 font-mono">
+                                                            {new Date(score.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-500 font-mono">
+                                                            {new Date(score.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                            {score.home.logo && <img src={score.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                            <span className="text-sm font-bold text-white truncate">{score.home.name}</span>
+                                                        </div>
+                                                        <span className="text-slate-600 text-xs mx-3 flex-shrink-0">vs</span>
+                                                        <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                            <span className="text-sm font-bold text-white truncate">{score.away.name}</span>
+                                                            {score.away.logo && <img src={score.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                        </div>
+                                                    </div>
+                                                    {score.venue && <div className="mb-3 text-[10px] text-slate-600 truncate">{score.venue}</div>}
+                                                    {/* Sim Prediction Integrated */}
+                                                    {simFix?.odds ? (
+                                                        <div>
+                                                            <div className="flex justify-between text-xs mb-1.5 font-mono">
+                                                                <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {simFix.odds.homeWinProb}%</span>
+                                                                <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {simFix.odds.drawProb}%</span>
+                                                                <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {simFix.odds.awayWinProb}%</span>
+                                                            </div>
+                                                            <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                                <div className="bg-emerald-500" style={{ width: `${simFix.odds.homeWinProb}%` }}></div>
+                                                                <div className="bg-slate-500" style={{ width: `${simFix.odds.drawProb}%` }}></div>
+                                                                <div className="bg-rose-500" style={{ width: `${simFix.odds.awayWinProb}%` }}></div>
+                                                            </div>
+                                                            <button onClick={() => openInsights({ id: homeInternalId, name: score.home.name }, { id: awayInternalId, name: score.away.name })} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                                <BarChart3 size={12} /> View Insights
+                                                            </button>
+                                                        </div>
+                                                    ) : homeInternalId && awayInternalId ? (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (simFixIdx >= 0) {
+                                                                    predictMatch(simFixIdx, homeInternalId, awayInternalId);
+                                                                } else {
+                                                                    // Direct prediction for ESPN-only matches
+                                                                    openInsights({ id: homeInternalId, name: score.home.name }, { id: awayInternalId, name: score.away.name });
+                                                                }
+                                                            }}
+                                                            className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all"
+                                                        >
+                                                            <Activity size={14} className="text-purple-400" />
+                                                            {simFixIdx >= 0 ? 'Simulate Prediction (1000 Runs)' : 'View Insights'}
+                                                        </button>
+                                                    ) : null}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Completed Matches */}
                             {espnScores.filter(s => s.isCompleted).length > 0 && (
                                 <div>
@@ -866,42 +835,77 @@ export default function LeaguePageClient() {
                                     </div>
                                 </div>
                             )}
-
-                            {/* Scheduled Matches */}
-                            {espnScores.filter(s => s.statusState === 'pre').length > 0 && (
-                                <div>
-                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Clock size={14} /> Upcoming
-                                    </h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {espnScores.filter(s => s.statusState === 'pre').map(score => (
-                                            <div key={score.id} className="glass-card p-4">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-[10px] text-slate-500 font-mono">
-                                                        {new Date(score.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-500 font-mono">
-                                                        {new Date(score.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                        {score.home.logo && <img src={score.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
-                                                        <span className="text-sm font-bold text-white truncate">{score.home.name}</span>
-                                                    </div>
-                                                    <span className="text-slate-600 text-xs mx-3 flex-shrink-0">vs</span>
-                                                    <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-                                                        <span className="text-sm font-bold text-white truncate">{score.away.name}</span>
-                                                        {score.away.logo && <img src={score.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
-                                                    </div>
-                                                </div>
-                                                {score.venue && <div className="mt-2 text-[10px] text-slate-600 truncate">{score.venue}</div>}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
                             <p className="text-[10px] text-slate-600 text-center">Data from ESPN • Auto-refreshes every 30 seconds</p>
+                        </div>
+                    ) : (
+                        /* Sim Fallback Fixtures */
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-3">
+                                    <button onClick={() => goToMatchday(currentMatchday - 1)} disabled={currentMatchday <= minMatchday} className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                        <ChevronLeft size={18} />
+                                    </button>
+                                    <div className="text-center px-4 py-1.5 bg-slate-800/50 rounded-lg border border-slate-700">
+                                        <div className="text-xs text-slate-400 uppercase tracking-wider">Matchday</div>
+                                        <div className="text-lg font-bold text-white">{currentMatchday}</div>
+                                    </div>
+                                    <button onClick={() => goToMatchday(currentMatchday + 1)} disabled={currentMatchday >= maxMatchday} className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                        <ChevronRight size={18} />
+                                    </button>
+                                </div>
+                                <span className="text-xs text-slate-500">Simulation data (ESPN unavailable)</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {fixtures.length === 0 ? (
+                                    <div className="col-span-full glass-card p-8 text-center text-slate-400">
+                                        <Calendar size={32} className="mx-auto mb-3 opacity-50" />
+                                        <p className="font-medium">No fixtures for matchday {currentMatchday}</p>
+                                    </div>
+                                ) : fixtures.map((f, i) => (
+                                    <div key={i} className="glass-card p-4">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                    {f.home.logo ? <img src={f.home.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                                </div>
+                                                <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
+                                            </div>
+                                            <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
+                                            <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+                                                <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
+                                                <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                    {f.away.logo ? <img src={f.away.logo} className="object-contain w-5 h-5" alt="" /> : <span className="text-xs">⚽</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {f.odds ? (
+                                            <div>
+                                                <div className="flex justify-between text-xs mb-1.5 font-mono">
+                                                    <span className="text-emerald-400">H: {f.odds.homeWinProb}%</span>
+                                                    <span className="text-slate-400">D: {f.odds.drawProb}%</span>
+                                                    <span className="text-rose-400">A: {f.odds.awayWinProb}%</span>
+                                                </div>
+                                                <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                    <div className="bg-emerald-500" style={{ width: `${f.odds.homeWinProb}%` }}></div>
+                                                    <div className="bg-slate-500" style={{ width: `${f.odds.drawProb}%` }}></div>
+                                                    <div className="bg-rose-500" style={{ width: `${f.odds.awayWinProb}%` }}></div>
+                                                </div>
+                                                <button onClick={() => openInsights(f.home, f.away)} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                    <BarChart3 size={12} /> View Insights
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => predictMatch(i, f.home.id, f.away.id)} disabled={f.loadingOdds || !f.home.id || !f.away.id} className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70">
+                                                {f.loadingOdds ? (
+                                                    <><RefreshCw className="animate-spin text-emerald-400" size={14} /><span className="text-emerald-400">Simulating...</span></>
+                                                ) : (
+                                                    <><Activity size={14} className="text-purple-400" /> Simulate Prediction</>
+                                                )}
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -910,7 +914,7 @@ export default function LeaguePageClient() {
             {/* ESPN Match Detail */}
             {activeTab === 'espn-match' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <button onClick={() => setActiveTab('espn-fixtures')} className="text-slate-400 hover:text-white flex items-center gap-2 mb-4 text-sm transition-colors">
+                    <button onClick={() => setActiveTab('fixtures')} className="text-slate-400 hover:text-white flex items-center gap-2 mb-4 text-sm transition-colors">
                         <ArrowLeft size={14} /> Back to Matches
                     </button>
                     {espnMatchDetailEvent && (
@@ -1174,9 +1178,9 @@ export default function LeaguePageClient() {
                                     </div>
                                 </div>
 
-                                {/* H2H */}
+                                {/* H2H (Sim) */}
                                 <div className="glass-panel p-4">
-                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Head-to-Head</h3>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Head-to-Head (Sim)</h3>
                                     {insightsData.h2h.length > 0 ? (
                                         <div className="space-y-2 text-sm">
                                             {insightsData.h2h.map((m: any, i: number) => (
@@ -1190,6 +1194,122 @@ export default function LeaguePageClient() {
                                     ) : <p className="text-slate-600">No previous meetings</p>}
                                 </div>
 
+                                {/* ── ESPN Real-World Data Section ── */}
+                                {insightsData.espn && (insightsData.espn.homeStanding || insightsData.espn.awayStanding || insightsData.espn.homeForm || insightsData.espn.awayForm) && (
+                                    <div className="glass-panel p-4 border border-emerald-500/20 bg-emerald-500/[0.02]">
+                                        <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                            <Globe size={14} /> Real-World Data
+                                            <span className="text-[9px] text-emerald-400/60 bg-emerald-500/10 px-1.5 py-0.5 rounded font-mono">ESPN</span>
+                                        </h3>
+
+                                        {/* Real Standings Comparison */}
+                                        {(insightsData.espn.homeStanding || insightsData.espn.awayStanding) && (
+                                            <div className="mb-4">
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 font-bold">League Position</div>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    {[
+                                                        { label: insightsData.home.name, st: insightsData.espn.homeStanding },
+                                                        { label: insightsData.away.name, st: insightsData.espn.awayStanding },
+                                                    ].map((side, si) => (
+                                                        <div key={si} className={`bg-slate-800/50 rounded-lg p-3 ${si === 1 ? 'text-right' : ''}`}>
+                                                            {side.st ? (
+                                                                <>
+                                                                    <div className="text-2xl font-black text-white font-mono">#{side.st.rank}</div>
+                                                                    <div className="text-xs text-slate-400 font-mono mt-1">{side.st.points} pts ({side.st.ppg?.toFixed(2)} PPG)</div>
+                                                                    <div className="text-[10px] text-slate-500 mt-0.5">{side.st.wins}W {side.st.draws}D {side.st.losses}L</div>
+                                                                    <div className="text-[10px] text-slate-500">{side.st.goalsFor} GF / {side.st.goalsAgainst} GA</div>
+                                                                </>
+                                                            ) : (
+                                                                <div className="text-xs text-slate-600">No data</div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Real Form */}
+                                        {(insightsData.espn.homeForm || insightsData.espn.awayForm) && (
+                                            <div className="mb-4">
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 font-bold">Real Form (Last 5)</div>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    {[
+                                                        { form: insightsData.espn.homeForm },
+                                                        { form: insightsData.espn.awayForm },
+                                                    ].map((side, si) => (
+                                                        <div key={si} className={`flex gap-1.5 ${si === 1 ? 'justify-end' : ''}`}>
+                                                            {side.form ? side.form.split('').map((r: string, fi: number) => (
+                                                                <span key={fi} className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold ${r === 'W' ? 'bg-emerald-500/20 text-emerald-400' : r === 'L' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>
+                                                                    {r}
+                                                                </span>
+                                                            )) : <span className="text-xs text-slate-600">N/A</span>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Recent Results */}
+                                        {(insightsData.espn.homeRecentResults?.length > 0 || insightsData.espn.awayRecentResults?.length > 0) && (
+                                            <div className="mb-4">
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 font-bold">Recent Results</div>
+                                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                                    {[
+                                                        { results: insightsData.espn.homeRecentResults },
+                                                        { results: insightsData.espn.awayRecentResults },
+                                                    ].map((side, si) => (
+                                                        <div key={si} className="space-y-1">
+                                                            {(side.results || []).slice(0, 5).map((r: any, ri: number) => (
+                                                                <div key={ri} className={`flex items-center gap-1.5 ${si === 1 ? 'flex-row-reverse' : ''}`}>
+                                                                    <span className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center flex-shrink-0 ${r.result === 'W' ? 'bg-emerald-500/20 text-emerald-400' : r.result === 'L' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>{r.result}</span>
+                                                                    <span className="text-slate-400 truncate">{r.score} vs {r.opponent}</span>
+                                                                </div>
+                                                            ))}
+                                                            {(!side.results || side.results.length === 0) && <span className="text-slate-600">No data</span>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* ESPN H2H */}
+                                        {insightsData.espn.h2h?.length > 0 && (
+                                            <div className="mb-4">
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 font-bold">Real H2H (ESPN)</div>
+                                                <div className="space-y-1.5">
+                                                    {insightsData.espn.h2h.slice(0, 5).map((g: any, gi: number) => (
+                                                        <div key={gi} className="flex items-center justify-between text-xs bg-slate-800/30 rounded p-2">
+                                                            <span className="text-slate-500 font-mono">{g.date ? new Date(g.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: '2-digit' }) : ''}</span>
+                                                            <span className="text-slate-300 font-mono font-bold">{g.score}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Bookmaker Odds */}
+                                        {insightsData.espn.odds?.length > 0 && (
+                                            <div>
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 font-bold">Bookmaker Odds</div>
+                                                <div className="space-y-1.5">
+                                                    {insightsData.espn.odds.slice(0, 3).map((o: any, oi: number) => (
+                                                        <div key={oi} className="flex items-center justify-between text-xs bg-slate-800/30 rounded p-2">
+                                                            <span className="text-slate-500">{o.provider}</span>
+                                                            <div className="flex gap-3 font-mono text-slate-300">
+                                                                {o.details && <span>{o.details}</span>}
+                                                                {o.overUnder > 0 && <span className="text-slate-500">O/U: {o.overUnder}</span>}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="mt-3 pt-2 border-t border-emerald-500/10">
+                                            <p className="text-[9px] text-slate-600">Real-time data from ESPN</p>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {!setupComplete && (
                                     <div className="mb-4 bg-slate-950/50 border border-slate-800 rounded p-3 text-xs text-slate-400 flex items-center gap-2">

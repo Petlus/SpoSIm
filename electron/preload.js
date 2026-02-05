@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('electron', {
     espnGetTeamId: (internalId) => ipcRenderer.invoke('espn-get-team-id', internalId),
     espnSyncLogos: () => ipcRenderer.invoke('espn-sync-logos'),
     espnSyncStandings: () => ipcRenderer.invoke('espn-sync-standings'),
+    espnSyncPlayerRatings: () => ipcRenderer.invoke('espn-sync-player-ratings'),
+    espnGetTeamRoster: (league, espnTeamId) => ipcRenderer.invoke('espn-get-team-roster', { league, espnTeamId }),
 
     on: (channel, fn) => {
         const subscription = (_event, ...args) => fn(_event, ...args);

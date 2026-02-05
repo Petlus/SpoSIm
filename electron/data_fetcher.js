@@ -1123,6 +1123,9 @@ async function syncStandingsFromEspn() {
             const standings = await espnService.getStandings(league.code);
             for (const entry of standings) {
                 if (!entry.internalId) continue;
+                // Verify team actually exists in our DB before upserting
+                const teamExists = await prisma.team.findUnique({ where: { id: entry.internalId }, select: { id: true } });
+                if (!teamExists) continue;
                 await prisma.standing.upsert({
                     where: {
                         leagueId_teamId_season_groupName: {
@@ -1166,6 +1169,205 @@ async function syncStandingsFromEspn() {
     return synced;
 }
 
+/**
+ * Sync player ratings from ESPN real-world data.
+ * Combines team-performance calibration + individual stat bonuses.
+ */
+async function syncPlayerRatingsFromEspn() {
+    console.log("[ESPN] Syncing player ratings from ESPN rosters...");
+    const leagues = espnService.getLeagues().filter(l => !['uefa.champions', 'uefa.europa'].includes(l.code));
+    let updated = 0;
+    let errors = 0;
+
+    for (const league of leagues) {
+        try {
+            // 1. Get ESPN standings for team-wide calibration
+            const standings = await espnService.getStandings(league.code);
+            if (!standings || standings.length === 0) continue;
+
+            // Calculate league average PPG for calibration baseline
+            const avgPPG = standings.reduce((sum, s) => sum + (s.ppg || 0), 0) / standings.length;
+
+            // 2. For each team in the standings, fetch roster + apply adjustments
+            for (const entry of standings) {
+                if (!entry.internalId) continue;
+                const espnTeamId = entry.espnId;
+                if (!espnTeamId) continue;
+
+                // Verify team exists in DB
+                const dbTeam = await prisma.team.findUnique({ where: { id: entry.internalId }, select: { id: true } });
+                if (!dbTeam) continue;
+
+                // Get all DB players for this team
+                const dbPlayers = await prisma.player.findMany({
+                    where: { teamId: entry.internalId },
+                    select: { id: true, name: true, rating: true, position: true, goals: true, assists: true }
+                });
+                if (dbPlayers.length === 0) continue;
+
+                // Team-wide calibration factor based on real PPG vs league average
+                // PPG range typically 0.5 - 2.8. Adjustment: +/- 3 max
+                const ppgDiff = (entry.ppg || 0) - avgPPG;
+                const teamCalibration = Math.max(-3, Math.min(3, Math.round(ppgDiff * 2)));
+
+                // Fetch ESPN roster with stats
+                let espnRoster = [];
+                try {
+                    espnRoster = await espnService.getTeamRoster(league.code, String(espnTeamId));
+                    await sleep(200); // rate limit
+                } catch (e) {
+                    console.log(`[ESPN] Roster fetch failed for ${entry.team}: ${e.message}`);
+                    continue;
+                }
+
+                if (!espnRoster || espnRoster.length === 0) continue;
+
+                // Get max appearances in this team (= how many games played)
+                const maxApp = Math.max(1, ...espnRoster.map(p => p.appearances || 0));
+
+                // 3. Match ESPN players to DB players by name and apply adjustments
+                for (const dbPlayer of dbPlayers) {
+                    // Find matching ESPN player (fuzzy name match)
+                    const espnPlayer = findBestMatch(dbPlayer.name, espnRoster);
+
+                    let ratingAdjust = teamCalibration; // Start with team-wide calibration
+
+                    if (espnPlayer) {
+                        const app = espnPlayer.appearances || 0;
+                        const goals = espnPlayer.goals || 0;
+                        const assists = espnPlayer.assists || 0;
+                        const shots = espnPlayer.shots || 0;
+                        const yellowCards = espnPlayer.yellowCards || 0;
+                        const redCards = espnPlayer.redCards || 0;
+                        const saves = espnPlayer.saves || 0;
+                        const pos = espnPlayer.position || dbPlayer.position;
+
+                        // --- Individual stat bonuses ---
+
+                        // Starter bonus: high appearances relative to team max
+                        if (app >= maxApp * 0.6 && app >= 5) {
+                            ratingAdjust += 2; // Regular starter
+                        } else if (app < maxApp * 0.2 && maxApp >= 5) {
+                            ratingAdjust -= 1; // Rarely plays
+                        }
+
+                        // Goal bonus (position-weighted)
+                        if (pos === 'FWD') {
+                            ratingAdjust += Math.min(5, Math.floor(goals / 3)); // +1 per 3 goals, max +5
+                        } else if (pos === 'MID') {
+                            ratingAdjust += Math.min(4, Math.floor(goals / 2)); // +1 per 2 goals, max +4 (midfielders scoring = exceptional)
+                        } else if (pos === 'DEF' || pos === 'GK') {
+                            ratingAdjust += Math.min(3, goals * 2); // +2 per goal (rare for defenders)
+                        }
+
+                        // Assist bonus
+                        ratingAdjust += Math.min(3, Math.floor(assists / 3)); // +1 per 3 assists, max +3
+
+                        // Shot efficiency bonus (for attackers/midfielders with appearances)
+                        if ((pos === 'FWD' || pos === 'MID') && shots >= 10 && app >= 5) {
+                            const shotAccuracy = (espnPlayer.shotsOnTarget || 0) / shots;
+                            if (shotAccuracy >= 0.5) ratingAdjust += 1; // Good shot accuracy
+                        }
+
+                        // GK saves bonus
+                        if (pos === 'GK' && app >= 5) {
+                            const savesPerGame = saves / app;
+                            if (savesPerGame >= 3) ratingAdjust += 2; // Outstanding GK
+                            else if (savesPerGame >= 2) ratingAdjust += 1; // Good GK
+                        }
+
+                        // Discipline penalty
+                        if (redCards >= 2) ratingAdjust -= 2;
+                        else if (redCards >= 1) ratingAdjust -= 1;
+
+                        // Update goals/assists in DB
+                        const goalsDiff = goals - (dbPlayer.goals || 0);
+                        const assistsDiff = assists - (dbPlayer.assists || 0);
+                        if (goalsDiff > 0 || assistsDiff > 0) {
+                            await prisma.player.update({
+                                where: { id: dbPlayer.id },
+                                data: {
+                                    goals: goals,
+                                    assists: assists,
+                                    yellowCards: Math.round(yellowCards),
+                                    redCards: Math.round(redCards),
+                                    isInjured: espnPlayer.injured || false,
+                                }
+                            });
+                        }
+                    }
+
+                    // Apply rating adjustment (clamped)
+                    if (ratingAdjust !== 0) {
+                        const newRating = Math.max(50, Math.min(95, dbPlayer.rating + ratingAdjust));
+                        if (newRating !== dbPlayer.rating) {
+                            await prisma.player.update({
+                                where: { id: dbPlayer.id },
+                                data: { rating: newRating }
+                            });
+                            updated++;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`[ESPN] Player rating sync error for ${league.code}:`, e.message);
+            errors++;
+        }
+    }
+
+    console.log(`[ESPN] Player ratings updated: ${updated} players (${errors} errors)`);
+    return { updated, errors };
+}
+
+/**
+ * Fuzzy name matching: find the best matching ESPN player for a DB player name.
+ * Returns the ESPN player object or null.
+ */
+function findBestMatch(dbName, espnRoster) {
+    if (!dbName || !espnRoster || espnRoster.length === 0) return null;
+
+    const normalize = (s) => s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
+        .replace(/[^a-z0-9\s]/g, '') // Remove special chars
+        .trim();
+
+    const dbNorm = normalize(dbName);
+    const dbParts = dbNorm.split(/\s+/);
+
+    // 1. Exact match
+    let match = espnRoster.find(p => normalize(p.name) === dbNorm);
+    if (match) return match;
+
+    // 2. Last name match (most common: DB has "H. Kane", ESPN has "Harry Kane")
+    const dbLast = dbParts[dbParts.length - 1];
+    const candidates = espnRoster.filter(p => {
+        const espnParts = normalize(p.name).split(/\s+/);
+        const espnLast = espnParts[espnParts.length - 1];
+        return espnLast === dbLast;
+    });
+    if (candidates.length === 1) return candidates[0];
+
+    // 3. First initial + last name match (e.g. "H. Kane" matches "Harry Kane")
+    if (dbParts.length >= 2 && dbParts[0].length <= 2) {
+        const initial = dbParts[0].charAt(0);
+        const lastName = dbParts[dbParts.length - 1];
+        match = espnRoster.find(p => {
+            const n = normalize(p.name);
+            return n.includes(lastName) && (normalize(p.firstName || '').charAt(0) === initial);
+        });
+        if (match) return match;
+    }
+
+    // 4. Contains match (any part of one name appears in the other)
+    if (dbLast.length >= 4) {
+        match = espnRoster.find(p => normalize(p.name).includes(dbLast));
+        if (match) return match;
+    }
+
+    return null;
+}
+
 module.exports = {
     updateAllData,
     fetchFootballData,
@@ -1177,7 +1379,8 @@ module.exports = {
     fetchAllKickerSquads,
     kickerNoteToRating,
     updateTeamLogosFromEspn,
-    syncStandingsFromEspn
+    syncStandingsFromEspn,
+    syncPlayerRatingsFromEspn
 };
 
 if (require.main === module) {

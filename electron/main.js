@@ -227,7 +227,9 @@ app.whenReady().then(async () => {
             console.log('[ESPN] Background sync: updating logos and standings...');
             await dataFetcher.updateTeamLogosFromEspn();
             await dataFetcher.syncStandingsFromEspn();
-            console.log('[ESPN] Background sync complete.');
+            console.log('[ESPN] Background sync: standings complete. Starting player ratings sync...');
+            await dataFetcher.syncPlayerRatingsFromEspn();
+            console.log('[ESPN] Background sync complete (incl. player ratings).');
         } catch (e) {
             console.error('[ESPN] Background sync error:', e.message);
         }
@@ -812,6 +814,29 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
         select: { name: true, position: true }
     });
 
+    // ── ESPN Real-World Data for Insights ──
+    let espnMatchOdds = [];
+    let espnH2h = [];
+    try {
+        if (homeEspn?.leagueCode) {
+            const scores = await espnService.getScores(homeEspn.leagueCode);
+            const espnMatch = scores.find(s => {
+                const homeMatch = s.homeTeam?.internalId === homeId || s.awayTeam?.internalId === homeId;
+                const awayMatch = s.homeTeam?.internalId === awayId || s.awayTeam?.internalId === awayId;
+                return homeMatch && awayMatch;
+            });
+            if (espnMatch?.id) {
+                const summary = await espnService.getMatchSummary(homeEspn.leagueCode, espnMatch.id);
+                if (summary) {
+                    espnMatchOdds = summary.odds || [];
+                    espnH2h = summary.h2h || [];
+                }
+            }
+        }
+    } catch (e) {
+        console.log('[ESPN] Could not load match odds/h2h for insights:', e.message);
+    }
+
     return {
         odds,
         home: {
@@ -830,7 +855,17 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
             scorers: awayScorers,
             injuries: awayInjuries
         },
-        h2h
+        h2h,
+        espn: {
+            homeStanding: homeEspn?.standing || null,
+            awayStanding: awayEspn?.standing || null,
+            homeForm: homeEspn?.form || '',
+            awayForm: awayEspn?.form || '',
+            homeRecentResults: homeEspn?.recentResults || [],
+            awayRecentResults: awayEspn?.recentResults || [],
+            h2h: espnH2h,
+            odds: espnMatchOdds,
+        }
     };
 });
 
@@ -1794,5 +1829,22 @@ ipcMain.handle('espn-sync-standings', async () => {
         return { success: true, count };
     } catch (e) {
         return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('espn-sync-player-ratings', async () => {
+    try {
+        const result = await dataFetcher.syncPlayerRatingsFromEspn();
+        return { success: true, updated: result.updated, errors: result.errors };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('espn-get-team-roster', async (_event, { league, espnTeamId }) => {
+    try {
+        return await espnService.getTeamRoster(league, String(espnTeamId));
+    } catch (e) {
+        return [];
     }
 });

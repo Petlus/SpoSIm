@@ -271,7 +271,7 @@ class EspnService {
                 name: home?.team?.displayName || 'TBD',
                 shortName: home?.team?.abbreviation || '???',
                 logo: home?.team?.logo || null,
-                score: home?.score || '0',
+                score: (typeof home?.score === 'object' && home?.score != null) ? (home.score.displayValue ?? String(home.score.value ?? 0)) : (home?.score || '0'),
                 winner: home?.winner || false,
                 form: home?.form || '',
                 record: home?.records?.[0]?.summary || '',
@@ -282,7 +282,7 @@ class EspnService {
                 name: away?.team?.displayName || 'TBD',
                 shortName: away?.team?.abbreviation || '???',
                 logo: away?.team?.logo || null,
-                score: away?.score || '0',
+                score: (typeof away?.score === 'object' && away?.score != null) ? (away.score.displayValue ?? String(away.score.value ?? 0)) : (away?.score || '0'),
                 winner: away?.winner || false,
                 form: away?.form || '',
                 record: away?.records?.[0]?.summary || '',
@@ -322,7 +322,7 @@ class EspnService {
                         goalDifference: stats.pointDifferential || 0,
                         goalDifference_display: stats.pointDifferential_display || '0',
                         points: stats.points || 0,
-                        ppg: stats.ppg || 0,
+                        ppg: (stats.gamesPlayed || 0) > 0 ? (stats.points || 0) / (stats.gamesPlayed || 0) : (stats.ppg || 0),
                         deductions: stats.deductions || 0,
                         overallRecord: stats.overall_display || '',
                         note: entry.note ? {
@@ -486,6 +486,65 @@ class EspnService {
                 return [];
             }
         });
+    }
+
+    // ─── TEAM ROSTER (with season stats) ───────────────
+    async getTeamRoster(league, espnTeamId) {
+        return this.getCached(`roster:${league}:${espnTeamId}`, async () => {
+            try {
+                const res = await axios.get(`${ESPN_BASE}/${league}/teams/${espnTeamId}/roster`, { timeout: 10000 });
+                const athletes = res.data?.athletes || [];
+
+                const mapPosition = (pos) => {
+                    const name = (pos?.name || pos?.displayName || '').toLowerCase();
+                    if (name.includes('goalkeeper')) return 'GK';
+                    if (name.includes('defender')) return 'DEF';
+                    if (name.includes('midfielder')) return 'MID';
+                    if (name.includes('forward') || name.includes('striker')) return 'FWD';
+                    return 'SUB';
+                };
+
+                const extractStat = (categories, catName, statName) => {
+                    const cat = (categories || []).find(c => c.abbreviation === catName || c.name === catName);
+                    if (!cat) return 0;
+                    const stat = (cat.stats || []).find(s => s.name === statName);
+                    return stat?.value || 0;
+                };
+
+                return athletes.map(a => {
+                    const cats = a.statistics?.splits?.categories || [];
+                    return {
+                        espnId: a.id,
+                        name: a.displayName || a.fullName,
+                        firstName: a.firstName || '',
+                        lastName: a.lastName || '',
+                        age: a.age || null,
+                        jersey: a.jersey || null,
+                        position: mapPosition(a.position),
+                        positionName: a.position?.displayName || '',
+                        citizenship: a.citizenship || '',
+                        headshot: a.headshot?.href || null,
+                        injured: (a.injuries || []).length > 0,
+                        // Season stats
+                        appearances: extractStat(cats, 'gen', 'appearances'),
+                        subIns: extractStat(cats, 'gen', 'subIns'),
+                        goals: extractStat(cats, 'off', 'totalGoals'),
+                        assists: extractStat(cats, 'off', 'goalAssists'),
+                        shots: extractStat(cats, 'off', 'totalShots'),
+                        shotsOnTarget: extractStat(cats, 'off', 'shotsOnTarget'),
+                        yellowCards: extractStat(cats, 'gen', 'yellowCards'),
+                        redCards: extractStat(cats, 'gen', 'redCards'),
+                        foulsCommitted: extractStat(cats, 'gen', 'foulsCommitted'),
+                        // GK stats
+                        saves: extractStat(cats, 'gk', 'saves'),
+                        goalsConceded: extractStat(cats, 'gk', 'goalsConceded'),
+                    };
+                });
+            } catch (e) {
+                console.error(`ESPN Roster Error (${league}/${espnTeamId}):`, e.message);
+                return [];
+            }
+        }, 300000); // 5 min cache
     }
 
     // ─── UTILITY ─────────────────────────────────────────
