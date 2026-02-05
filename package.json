@@ -6,7 +6,7 @@
   "author": "BetBrain",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/YOUR_REPO.git"
+    "url": "https://github.com/Petlus/SpoSIm.git"
   },
   "scripts": {
     "dev": "concurrently -k \"next dev\" \"wait-on tcp:3000 && electron .\"",
