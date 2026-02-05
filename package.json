@@ -1,6 +1,6 @@
 {
   "name": "betbrain",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "main": "electron/index.js",
   "author": "BetBrain",
@@ -82,8 +82,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "YOUR_USERNAME",
-      "repo": "YOUR_REPO",
+      "owner": "Petlus",
+      "repo": "SpoSIm",
       "vPrefixedTagName": true,
       "releaseType": "release"
     }

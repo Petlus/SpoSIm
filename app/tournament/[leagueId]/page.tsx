@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Trophy, Play, RefreshCw, Calendar, ChevronLeft, ChevronRight, BarChart3, Activity, X, Sparkles, BrainCircuit, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { ArrowLeft, Trophy, Play, RefreshCw, Calendar, ChevronLeft, ChevronRight, BarChart3, Activity, X, Sparkles, BrainCircuit, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 
 const FormDot = ({ result }: { result: string }) => {
     const colors: Record<string, string> = { W: 'bg-emerald-500', D: 'bg-slate-500', L: 'bg-rose-500' };
@@ -62,6 +62,8 @@ export default function TournamentPage() {
     const [loadingInsights, setLoadingInsights] = useState(false);
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [loadingAi, setLoadingAi] = useState(false);
+    const [aiProgress, setAiProgress] = useState<{ progress: number; step: string } | null>(null);
+    const [aiError, setAiError] = useState<string | null>(null);
     const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'unknown' | 'not_installed' | 'offline' | 'ready'>('checking');
     const [downloadUrl, setDownloadUrl] = useState('');
     const [setupComplete, setSetupComplete] = useState(false);
@@ -216,15 +218,31 @@ export default function TournamentPage() {
     };
 
     const askAi = async () => {
-        if (!insightsData) return;
+        if (!insightsData || !window.electron) return;
         setLoadingAi(true);
         setAiAnalysis(null);
-        const res = await window.electron!.getAiPrediction(insightsData.home.id, insightsData.away.id, insightsData.odds) as any;
-        setLoadingAi(false);
-        if (res?.success && res?.text) {
-            const think = res.text.match(/<think>([\s\S]*?)<\/think>/);
-            setAiAnalysis(res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim());
-        } else if (res?.error) setAiAnalysis(`Error: ${res.error}`);
+        setAiError(null);
+        setAiProgress({ progress: 0, step: 'Starting...' });
+
+        const unsub = window.electron.on('ai-analyst-progress', (_e: unknown, ...args: unknown[]) => {
+            const data = args[0] as { progress: number; step: string };
+            if (data) setAiProgress(data);
+        });
+
+        try {
+            const res = await window.electron.getAiPrediction(insightsData.home.id, insightsData.away.id, insightsData.odds) as any;
+            if (res?.success && res?.text) {
+                setAiAnalysis(res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim());
+            } else if (res?.error) {
+                setAiError(res.error);
+            }
+        } catch (err) {
+            setAiError(err instanceof Error ? err.message : 'An unexpected error occurred.');
+        } finally {
+            unsub();
+            setLoadingAi(false);
+            setAiProgress(null);
+        }
     };
 
     useEffect(() => {
@@ -566,12 +584,34 @@ export default function TournamentPage() {
                                 )}
                                 <div className="glass-panel p-4 border-t border-purple-500/30 bg-gradient-to-br from-slate-900 to-purple-900/20">
                                     <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2"><Sparkles size={14} className="text-purple-400" /> AI Analyst</h3>
+                                    {aiError && !loadingAi && (
+                                        <div className="mb-4 p-4 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-start gap-3">
+                                            <AlertCircle className="text-rose-400 flex-shrink-0 mt-0.5" size={18} />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-rose-200">{aiError}</p>
+                                                <button onClick={() => { setAiError(null); askAi(); }} className="mt-3 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded transition-colors flex items-center gap-2">
+                                                    <RefreshCw size={12} /> Retry
+                                                </button>
+                                            </div>
+                                            <button onClick={() => setAiError(null)} className="text-slate-500 hover:text-slate-300 p-1" aria-label="Dismiss"><X size={16} /></button>
+                                        </div>
+                                    )}
                                     {!aiAnalysis && !loadingAi && (
                                         <button onClick={askAi} disabled={ollamaStatus !== 'ready'} className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg font-bold text-white text-sm flex items-center justify-center gap-2">
                                             <BrainCircuit size={16} /> {ollamaStatus === 'ready' ? 'Get AI Prediction' : `Ollama: ${ollamaStatus}`}
                                         </button>
                                     )}
-                                    {loadingAi && <div className="text-center py-4 text-slate-400"><RefreshCw className="animate-spin mx-auto" size={24} /></div>}
+                                    {loadingAi && (
+                                        <div className="py-4 flex flex-col items-center gap-3">
+                                            <RefreshCw className="animate-spin text-purple-400" size={24} />
+                                            <div className="w-full space-y-2">
+                                                <p className="text-xs font-mono text-slate-400 text-center">{aiProgress?.step || 'Analysing...'}</p>
+                                                <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 transition-all duration-500" style={{ width: `${aiProgress?.progress ?? 0}%` }} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                     {aiAnalysis && <div className="text-slate-300 text-sm whitespace-pre-wrap">{aiAnalysis}</div>}
                                 </div>
                             </div>

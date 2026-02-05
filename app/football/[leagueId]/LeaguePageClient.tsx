@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit, Target } from 'lucide-react';
+import { ArrowLeft, Play, BarChart3, TrendingUp, TrendingDown, Minus, RefreshCw, X, Activity, AlertTriangle, Trophy, ChevronLeft, ChevronRight, Calendar, Sparkles, BrainCircuit, Target, AlertCircle } from 'lucide-react';
 
 // Form Dot Component
 const FormDot = ({ result }: { result: string }) => {
@@ -57,6 +57,8 @@ export default function LeaguePageClient() {
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [thoughtProcess, setThoughtProcess] = useState<string | null>(null);
     const [loadingAi, setLoadingAi] = useState(false);
+    const [aiProgress, setAiProgress] = useState<{ progress: number; step: string } | null>(null);
+    const [aiError, setAiError] = useState<string | null>(null);
     const [setupComplete, setSetupComplete] = useState(false);
 
     useEffect(() => {
@@ -169,16 +171,33 @@ export default function LeaguePageClient() {
     };
 
     const askAi = async () => {
-        if (!insightsData) return;
+        if (!insightsData || !window.electron) return;
         setLoadingAi(true);
         setAiAnalysis(null);
-        const res = await window.electron!.getAiPrediction(insightsData.home.id, insightsData.away.id, insightsData.odds) as any;
-        setLoadingAi(false);
-        if (res?.success && res?.text) {
-            const think = res.text.match(/<think>([\s\S]*?)<\/think>/);
-            setThoughtProcess(think ? think[1].trim() : null);
-            setAiAnalysis(res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim());
-        } else if (res?.error) setAiAnalysis(`Error: ${res.error}`);
+        setAiError(null);
+        setAiProgress({ progress: 0, step: 'Starting...' });
+
+        const unsub = window.electron.on('ai-analyst-progress', (_e: unknown, ...args: unknown[]) => {
+            const data = args[0] as { progress: number; step: string };
+            if (data) setAiProgress(data);
+        });
+
+        try {
+            const res = await window.electron.getAiPrediction(insightsData.home.id, insightsData.away.id, insightsData.odds) as any;
+            if (res?.success && res?.text) {
+                const think = res.text.match(/<think>([\s\S]*?)<\/think>/);
+                setThoughtProcess(think ? think[1].trim() : null);
+                setAiAnalysis(res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim());
+            } else if (res?.error) {
+                setAiError(res.error);
+            }
+        } catch (err) {
+            setAiError(err instanceof Error ? err.message : 'An unexpected error occurred.');
+        } finally {
+            unsub();
+            setLoadingAi(false);
+            setAiProgress(null);
+        }
     };
 
     if (loading) return <div className="p-10 text-slate-400 flex items-center gap-3"><RefreshCw className="animate-spin" size={18} /> Loading...</div>;
@@ -687,6 +706,20 @@ export default function LeaguePageClient() {
                                             <Sparkles size={14} className="text-purple-400" /> AI Analyst (Beta)
                                         </h3>
 
+                                        {/* Error Display */}
+                                        {aiError && !loadingAi && (
+                                            <div className="mb-4 p-4 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                                <AlertCircle className="text-rose-400 flex-shrink-0 mt-0.5" size={18} />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium text-rose-200">{aiError}</p>
+                                                    <button onClick={() => { setAiError(null); askAi(); }} className="mt-3 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded transition-colors flex items-center gap-2">
+                                                        <RefreshCw size={12} /> Retry
+                                                    </button>
+                                                </div>
+                                                <button onClick={() => setAiError(null)} className="text-slate-500 hover:text-slate-300 p-1" aria-label="Dismiss"><X size={16} /></button>
+                                            </div>
+                                        )}
+
                                         {/* Status Aware Buttons */}
                                         {!aiAnalysis && !loadingAi && (
                                             <>
@@ -723,12 +756,20 @@ export default function LeaguePageClient() {
                                     </div>
 
                                     {loadingAi && (
-                                        <div className="p-6 text-center text-purple-300 flex flex-col items-center gap-3">
+                                        <div className="p-6 text-center text-purple-300 flex flex-col items-center gap-4">
                                             <div className="relative">
                                                 <div className="absolute inset-0 bg-purple-500/30 rounded-full animate-ping"></div>
                                                 <BrainCircuit className="relative z-10 text-purple-400 animate-pulse" size={32} />
                                             </div>
-                                            <span className="text-xs font-mono font-medium tracking-wide">Analysing & Reasoning...</span>
+                                            <div className="w-full space-y-2">
+                                                <p className="text-xs font-mono font-medium tracking-wide text-slate-400">{aiProgress?.step || 'Analysing...'}</p>
+                                                <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-gradient-to-r from-purple-500 to-fuchsia-500 transition-all duration-500 ease-out"
+                                                        style={{ width: `${aiProgress?.progress ?? 0}%` }}
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
 

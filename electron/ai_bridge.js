@@ -11,16 +11,21 @@ class AiBridge {
     /**
      * Generate Expert Analysis using Ollama
      * @param {Object} context Match context with extended data
+     * @param {function} [onProgress] - (progress: number, step: string) => void
      */
-    async generateExpertAnalysis(context) {
+    async generateExpertAnalysis(context, onProgress) {
         const { home, away, odds, homeDetails, awayDetails, injuries, standings, topPlayers } = context;
 
         let selectedModel = this.defaultModel;
 
-        // Ensure model exists
-        await ollamaManager.pullModelIfMissing(selectedModel);
+        if (onProgress) onProgress(5, 'Checking model...');
+        const pullSuccess = await ollamaManager.pullModelIfMissing(selectedModel, onProgress);
+        if (!pullSuccess) {
+            throw new Error('Failed to download or verify AI model. Please ensure Ollama is running.');
+        }
 
         console.log(`AI Analyst using model: ${selectedModel}`);
+        if (onProgress) onProgress(35, 'Preparing analysis...');
 
         // Format standings info
         const homeStanding = standings?.home || { position: '?', points: 0, played: 0 };
@@ -71,6 +76,7 @@ AUFGABE: Gib EINE klare Wett-Empfehlung!
 Antworte NUR auf Deutsch. Kurz und klar. Wähle die EINE beste Wette basierend auf den Simulationsdaten!`;
 
         try {
+            if (onProgress) onProgress(50, 'Generating AI analysis...');
             const response = await axios.post(this.baseUrl, {
                 model: selectedModel,
                 prompt: prompt,
@@ -82,13 +88,21 @@ Antworte NUR auf Deutsch. Kurz und klar. Wähle die EINE beste Wette basierend a
                 system: "Du bist ein Sportwetten-Experte. Gib präzise, strukturierte Wett-Empfehlungen basierend auf den Daten. Keine langen Erklärungen, nur Fakten und Empfehlungen."
             });
 
+            if (onProgress) onProgress(95, 'Processing response...');
             return { success: true, text: response.data.response, model: selectedModel };
         } catch (e) {
             console.error("AI Bridge Error:", e.message);
+            if (onProgress) onProgress(0, 'Error');
             if (e.code === 'ECONNREFUSED') {
-                return { error: "Ollama is offline. Please start the service." };
+                throw new Error('Ollama is offline. Please start the service from the Dashboard.');
             }
-            return { error: "AI Service Unavailable." };
+            if (e.code === 'ECONNABORTED' || e.message?.includes('timeout')) {
+                throw new Error('Request timed out. The model may need more time – try again.');
+            }
+            if (e.response?.status === 404) {
+                throw new Error('Model not found. Please check your Ollama installation.');
+            }
+            throw new Error(e.message || 'AI service unavailable. Please try again.');
         }
     }
 }

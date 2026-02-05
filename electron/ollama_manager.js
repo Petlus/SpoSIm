@@ -147,38 +147,66 @@ class OllamaManager {
     /**
      * Pull a model if it's missing from the local registry
      * @param {string} modelName 
+     * @param {function} [onProgress] - (progress: number, step: string) => void
      * @returns {Promise<boolean>}
      */
-    async pullModelIfMissing(modelName) {
+    async pullModelIfMissing(modelName, onProgress) {
         const models = await this.getAvailableModels();
         // Check for exact match or partial match (e.g. 'deepseek-r1:7b' vs 'deepseek-r1:7b-instruct')
         const exists = models.some(m => m === modelName || m.startsWith(modelName + ':'));
 
         if (exists) {
             console.log(`Model ${modelName} is already available.`);
+            if (onProgress) onProgress(100, 'Model ready');
             return true;
         }
 
         console.log(`Model ${modelName} missing. Pulling... (This may take a while)`);
+        if (onProgress) onProgress(5, `Downloading model "${modelName}"... (this may take a few minutes)`);
 
         const exe = await this.resolveExe();
         if (!exe) {
             console.error("Cannot pull model – Ollama not found.");
+            if (onProgress) onProgress(0, 'Ollama not found');
             return false;
         }
 
         return new Promise((resolve) => {
             const p = spawn(exe, ['pull', modelName], { shell: true });
+            let lastProgress = 5;
 
-            p.stdout.on('data', (data) => console.log(`[Ollama Pull] ${data}`));
-            p.stderr.on('data', (data) => console.log(`[Ollama Pull] ${data}`));
+            const parseProgress = (data) => {
+                const str = String(data);
+                // Ollama outputs: "pulling manifest", "pulling abc123... 10%", etc.
+                const pctMatch = str.match(/(\d+)\s*%/);
+                if (pctMatch) {
+                    const pct = Math.min(95, parseInt(pctMatch[1], 10));
+                    if (pct > lastProgress && onProgress) {
+                        lastProgress = pct;
+                        onProgress(pct, `Downloading model... ${pct}%`);
+                    }
+                } else if (str.includes('pulling') && onProgress) {
+                    onProgress(Math.min(lastProgress + 5, 90), 'Downloading model...');
+                }
+            };
+
+            p.stdout.on('data', (data) => {
+                console.log(`[Ollama Pull] ${data}`);
+                parseProgress(data);
+            });
+            p.stderr.on('data', (data) => {
+                console.log(`[Ollama Pull] ${data}`);
+                parseProgress(data);
+            });
 
             p.on('close', (code) => {
                 if (code === 0) {
                     console.log(`Successfully pulled ${modelName}`);
+                    if (onProgress) onProgress(100, 'Model ready');
                     resolve(true);
                 } else {
                     console.error(`Failed to pull ${modelName}. Exit code: ${code}`);
+                    if (onProgress) onProgress(0, 'Download failed');
                     resolve(false);
                 }
             });

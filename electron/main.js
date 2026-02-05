@@ -26,6 +26,7 @@ const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
 let mainWindow;
 let splashWindow;
+let splashShownAt = 0;
 
 // ── Splash Window ──
 function createSplash() {
@@ -45,7 +46,10 @@ function createSplash() {
         show: false,
     });
     splashWindow.loadFile(path.join(__dirname, 'splash.html'));
-    splashWindow.once('ready-to-show', () => splashWindow.show());
+    splashWindow.once('ready-to-show', () => {
+        splashWindow.show();
+        splashShownAt = Date.now();
+    });
 }
 
 // Helper: send progress to splash window
@@ -80,8 +84,12 @@ function createMainWindow() {
     console.log(`Loading URL: ${startUrl}`);
     mainWindow.loadURL(startUrl);
 
-    // Show main window once loaded, close splash
-    mainWindow.once('ready-to-show', () => {
+    // Show main window once loaded, close splash (ensure splash visible for at least 5 seconds)
+    mainWindow.once('ready-to-show', async () => {
+        const minSplashMs = 5000;
+        const elapsed = splashShownAt ? Date.now() - splashShownAt : minSplashMs;
+        const remaining = Math.max(0, minSplashMs - elapsed);
+        if (remaining > 0) await new Promise(r => setTimeout(r, remaining));
         mainWindow.show();
         if (splashWindow && !splashWindow.isDestroyed()) {
             splashWindow.close();
@@ -1459,11 +1467,17 @@ ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
             standings, topPlayers
         };
 
-        return await aiBridge.generateExpertAnalysis(context);
+        const webContents = event.sender;
+        const onProgress = (progress, step) => {
+            try { webContents.send('ai-analyst-progress', { progress, step }); } catch (_) {}
+        };
+
+        return await aiBridge.generateExpertAnalysis(context, onProgress);
 
     } catch (e) {
         console.error("AI Prediction Error:", e);
-        return { error: e.message };
+        const msg = e?.message || String(e);
+        return { error: msg };
     }
 });
 
