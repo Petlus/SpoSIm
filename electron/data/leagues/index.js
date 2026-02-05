@@ -2,18 +2,17 @@
 // Season 2025/26
 
 const bundesliga = require('./bundesliga');
-// Future: Add more leagues
-// const premierLeague = require('./premier_league');
-// const laLiga = require('./la_liga');
-// const serieA = require('./serie_a');
-// const ligue1 = require('./ligue_1');
+const premierLeague = require('./premier_league');
+const laLiga = require('./la_liga');
+const serieA = require('./serie_a');
+const ligue1 = require('./ligue_1');
 
 const leagues = {
     BL1: bundesliga,
-    // PL: premierLeague,
-    // PD: laLiga,
-    // SA: serieA,
-    // FL1: ligue1
+    PL: premierLeague,
+    PD: laLiga,
+    SA: serieA,
+    FL1: ligue1
 };
 
 /**

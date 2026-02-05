@@ -9,7 +9,9 @@ const LEAGUES = {
     'PD': { id: 2014, name: 'La Liga', prestige: 0.98 },       // 20 Teams
     'SA': { id: 2019, name: 'Serie A', prestige: 0.94 },       // 20 Teams
     'FL1': { id: 2015, name: 'Ligue 1', prestige: 0.90 },      // 18 Teams
-    'CL': { id: 2001, name: 'Champions League', prestige: 1.1 }
+    'CL': { id: 2001, name: 'Champions League', prestige: 1.1 },
+    'EL': { id: 2146, name: 'Europa League', prestige: 1.0 },
+    'ECL': { id: 2154, name: 'Conference League', prestige: 0.9 }
 };
 
 const TEAMS = [
@@ -155,7 +157,64 @@ const TEAMS = [
     { id: 682, name: "Union St.Gilloise", leagueCode: 'CL', marketValue: 85000000, elo: 1600, logo: "https://crests.football-data.org/682.png" },
     { id: 1030, name: "Qarabag FK", leagueCode: 'CL', marketValue: 25000000, elo: 1580, logo: "https://crests.football-data.org/1030.png" },
     { id: 10242, name: "Pafos FC", leagueCode: 'CL', marketValue: 20000000, elo: 1510, logo: "https://crests.football-data.org/pafos.png" },
-    { id: 10360, name: "Kairat Almaty", leagueCode: 'CL', marketValue: 15000000, elo: 1480, logo: "https://crests.football-data.org/kairat.png" }
+    { id: 10360, name: "Kairat Almaty", leagueCode: 'CL', marketValue: 15000000, elo: 1480, logo: "https://crests.football-data.org/kairat.png" },
+
+    // === EUROPA LEAGUE 25/26 (36 Teams - League Phase) ===
+    { id: 58, name: "Aston Villa", leagueCode: 'EL', marketValue: 620000000, elo: 1770, logo: "https://crests.football-data.org/58.png" },
+    { id: 351, name: "Nottingham Forest", leagueCode: 'EL', marketValue: 290000000, elo: 1620, logo: "https://crests.football-data.org/351.png" },
+    { id: 521, name: "Lille OSC", leagueCode: 'EL', marketValue: 290000000, elo: 1690, logo: "https://crests.football-data.org/521.png" },
+    { id: 523, name: "Olympique Lyonnais", leagueCode: 'EL', marketValue: 250000000, elo: 1670, logo: "https://crests.football-data.org/523.png" },
+    { id: 522, name: "OGC Nice", leagueCode: 'EL', marketValue: 290000000, elo: 1690, logo: "https://crests.football-data.org/522.png" },
+    { id: 10, name: "VfB Stuttgart", leagueCode: 'EL', marketValue: 310000000, elo: 1680, logo: "https://crests.football-data.org/10.png" },
+    { id: 17, name: "SC Freiburg", leagueCode: 'EL', marketValue: 190000000, elo: 1590, logo: "https://crests.football-data.org/17.png" },
+    { id: 110, name: "Bologna FC", leagueCode: 'EL', marketValue: 210000000, elo: 1660, logo: "https://crests.football-data.org/110.png" },
+    { id: 100, name: "AS Roma", leagueCode: 'EL', marketValue: 360000000, elo: 1710, logo: "https://crests.football-data.org/100.png" },
+    { id: 679, name: "Feyenoord", leagueCode: 'EL', marketValue: 220000000, elo: 1680, logo: "https://crests.football-data.org/679.png" },
+    { id: 503, name: "FC Porto", leagueCode: 'EL', marketValue: 320000000, elo: 1720, logo: "https://crests.football-data.org/503.png" },
+    { id: 498, name: "SC Braga", leagueCode: 'EL', marketValue: 150000000, elo: 1640, logo: "https://crests.football-data.org/498.png" },
+    { id: 90, name: "Real Betis", leagueCode: 'EL', marketValue: 230000000, elo: 1680, logo: "https://crests.football-data.org/90.png" },
+    { id: 264, name: "Celta de Vigo", leagueCode: 'EL', marketValue: 130000000, elo: 1620, logo: "https://crests.football-data.org/264.png" },
+    { id: 816, name: "Celtic FC", leagueCode: 'EL', marketValue: 120000000, elo: 1630, logo: "https://crests.football-data.org/816.png" },
+    { id: 817, name: "Rangers FC", leagueCode: 'EL', marketValue: 110000000, elo: 1620, logo: "https://crests.football-data.org/817.png" },
+    { id: 1876, name: "FC Salzburg", leagueCode: 'EL', marketValue: 180000000, elo: 1660, logo: "https://crests.football-data.org/1876.png" },
+    { id: 1877, name: "Sturm Graz", leagueCode: 'EL', marketValue: 45000000, elo: 1580, logo: "https://crests.football-data.org/1877.png" },
+    { id: 694, name: "KRC Genk", leagueCode: 'EL', marketValue: 95000000, elo: 1610, logo: "https://crests.football-data.org/694.png" },
+    { id: 728, name: "Fenerbahçe", leagueCode: 'EL', marketValue: 250000000, elo: 1690, logo: "https://crests.football-data.org/728.png" },
+    { id: 1873, name: "Slavia Prague", leagueCode: 'EL', marketValue: 105000000, elo: 1640, logo: "https://crests.football-data.org/1873.png" },
+    { id: 1879, name: "PAOK FC", leagueCode: 'EL', marketValue: 65000000, elo: 1590, logo: "https://crests.football-data.org/1879.png" },
+    { id: 1880, name: "Panathinaikos", leagueCode: 'EL', marketValue: 70000000, elo: 1600, logo: "https://crests.football-data.org/1880.png" },
+    { id: 729, name: "Crvena Zvezda", leagueCode: 'EL', marketValue: 85000000, elo: 1620, logo: "https://crests.football-data.org/729.png" },
+    { id: 1920, name: "Viktoria Plzeň", leagueCode: 'EL', marketValue: 55000000, elo: 1570, logo: "https://crests.football-data.org/1920.png" },
+    { id: 581, name: "Ferencváros", leagueCode: 'EL', marketValue: 40000000, elo: 1550, logo: "https://crests.football-data.org/581.png" },
+    { id: 553, name: "Ludogorets Razgrad", leagueCode: 'EL', marketValue: 35000000, elo: 1540, logo: "https://crests.football-data.org/553.png" },
+    { id: 732, name: "GNK Dinamo Zagreb", leagueCode: 'EL', marketValue: 75000000, elo: 1580, logo: "https://crests.football-data.org/732.png" },
+    { id: 708, name: "Brann Bergen", leagueCode: 'EL', marketValue: 25000000, elo: 1510, logo: "https://crests.football-data.org/708.png" },
+    { id: 414, name: "FC Midtjylland", leagueCode: 'EL', marketValue: 60000000, elo: 1580, logo: "https://crests.football-data.org/414.png" },
+
+    // === CONFERENCE LEAGUE 25/26 (36 Teams - League Phase) ===
+    { id: 15, name: "1. FC Union Berlin", leagueCode: 'ECL', marketValue: 130000000, elo: 1550, logo: "https://crests.football-data.org/15.png" },
+    { id: 11, name: "VfL Wolfsburg", leagueCode: 'ECL', marketValue: 210000000, elo: 1580, logo: "https://crests.football-data.org/11.png" },
+    { id: 99, name: "ACF Fiorentina", leagueCode: 'ECL', marketValue: 260000000, elo: 1690, logo: "https://crests.football-data.org/99.png" },
+    { id: 103, name: "Torino FC", leagueCode: 'ECL', marketValue: 185000000, elo: 1650, logo: "https://crests.football-data.org/103.png" },
+    { id: 92, name: "Real Sociedad", leagueCode: 'ECL', marketValue: 390000000, elo: 1730, logo: "https://crests.football-data.org/92.png" },
+    { id: 529, name: "Stade Rennais FC", leagueCode: 'ECL', marketValue: 260000000, elo: 1660, logo: "https://crests.football-data.org/529.png" },
+    { id: 563, name: "West Ham United", leagueCode: 'ECL', marketValue: 460000000, elo: 1690, logo: "https://crests.football-data.org/563.png" },
+    { id: 397, name: "Brighton & Hove Albion", leagueCode: 'ECL', marketValue: 500000000, elo: 1720, logo: "https://crests.football-data.org/397.png" },
+    { id: 496, name: "Vitória SC", leagueCode: 'ECL', marketValue: 65000000, elo: 1590, logo: "https://crests.football-data.org/496.png" },
+    { id: 507, name: "Famalicão", leagueCode: 'ECL', marketValue: 35000000, elo: 1540, logo: "https://crests.football-data.org/507.png" },
+    { id: 692, name: "Royal Antwerp FC", leagueCode: 'ECL', marketValue: 120000000, elo: 1620, logo: "https://crests.football-data.org/692.png" },
+    { id: 680, name: "FC Utrecht", leagueCode: 'ECL', marketValue: 55000000, elo: 1550, logo: "https://crests.football-data.org/680.png" },
+    { id: 2062, name: "Go Ahead Eagles", leagueCode: 'ECL', marketValue: 25000000, elo: 1500, logo: "https://crests.football-data.org/2062.png" },
+    { id: 510, name: "FC Metz", leagueCode: 'ECL', marketValue: 60000000, elo: 1520, logo: "https://crests.football-data.org/510.png" },
+    { id: 576, name: "RC Strasbourg", leagueCode: 'ECL', marketValue: 120000000, elo: 1570, logo: "https://crests.football-data.org/576.png" },
+    { id: 1923, name: "AEK Athens", leagueCode: 'ECL', marketValue: 55000000, elo: 1580, logo: "https://crests.football-data.org/1923.png" },
+    { id: 1580, name: "Brøndby IF", leagueCode: 'ECL', marketValue: 40000000, elo: 1550, logo: "https://crests.football-data.org/1580.png" },
+    { id: 1909, name: "KAA Gent", leagueCode: 'ECL', marketValue: 80000000, elo: 1610, logo: "https://crests.football-data.org/1909.png" },
+    { id: 709, name: "Molde FK", leagueCode: 'ECL', marketValue: 30000000, elo: 1540, logo: "https://crests.football-data.org/709.png" },
+    { id: 889, name: "Shakhtar Donetsk", leagueCode: 'ECL', marketValue: 120000000, elo: 1640, logo: "https://crests.football-data.org/889.png" },
+    { id: 2094, name: "FCSB", leagueCode: 'ECL', marketValue: 35000000, elo: 1560, logo: "https://crests.football-data.org/2094.png" },
+    { id: 898, name: "HJK Helsinki", leagueCode: 'ECL', marketValue: 15000000, elo: 1480, logo: "https://crests.football-data.org/898.png" },
+    { id: 884, name: "Maccabi Tel Aviv", leagueCode: 'ECL', marketValue: 40000000, elo: 1550, logo: "https://crests.football-data.org/884.png" }
 ];
 
 module.exports = {

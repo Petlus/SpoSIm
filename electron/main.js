@@ -1,7 +1,8 @@
 require('dotenv').config();
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { prisma } = require('./db');
+const db = require('./db');
+const { prisma } = db;
 const axios = require('axios');
 const ollamaManager = require('./ollama_manager');
 const aiBridge = require('./ai_bridge');
@@ -100,10 +101,11 @@ app.on('window-all-closed', () => {
 
 // --- HELPER FUNCTIONS ---
 
-async function updateEloRatings(homeId, awayId, homeScore, awayScore) {
+async function updateEloRatings(homeId, awayId, homeScore, awayScore, tx = null) {
+    const client = tx || prisma;
     const K_FACTOR = 32;
-    const home = await prisma.team.findUnique({ where: { id: homeId } });
-    const away = await prisma.team.findUnique({ where: { id: awayId } });
+    const home = await client.team.findUnique({ where: { id: homeId } });
+    const away = await client.team.findUnique({ where: { id: awayId } });
 
     if (!home || !away) return;
 
@@ -123,8 +125,8 @@ async function updateEloRatings(homeId, awayId, homeScore, awayScore) {
     const newHome = Math.round(R_home + K_FACTOR * (Sa - Ea));
     const newAway = Math.round(R_away + K_FACTOR * (Sb - Eb));
 
-    await prisma.team.update({ where: { id: homeId }, data: { eloRating: newHome } });
-    await prisma.team.update({ where: { id: awayId }, data: { eloRating: newAway } });
+    await client.team.update({ where: { id: homeId }, data: { eloRating: newHome } });
+    await client.team.update({ where: { id: awayId }, data: { eloRating: newAway } });
 }
 
 async function calculateTeamStrength(teamId) {
@@ -210,7 +212,7 @@ async function seedDatabase() {
                 name: info.name,
                 country: 'Europe',
                 currentSeason: CURRENT_SEASON_STR,
-                type: code === 'CL' ? 'tournament' : 'league'
+                type: ['CL', 'EL', 'ECL'].includes(code) ? 'tournament' : 'league'
             }
         });
     }
@@ -251,7 +253,7 @@ async function seedDatabase() {
                     leagueId: leagueInfo.id,
                     teamId: team.id,
                     season: CURRENT_SEASON_STR,
-                    groupName: team.leagueCode === 'CL' ? 'League Phase' : 'League'
+                    groupName: ['CL', 'EL', 'ECL'].includes(team.leagueCode) ? 'League Phase' : 'League'
                 }
             },
             update: {},
@@ -259,7 +261,7 @@ async function seedDatabase() {
                 leagueId: leagueInfo.id,
                 teamId: team.id,
                 season: CURRENT_SEASON_STR,
-                groupName: team.leagueCode === 'CL' ? 'League Phase' : 'League',
+                groupName: ['CL', 'EL', 'ECL'].includes(team.leagueCode) ? 'League Phase' : 'League',
                 played: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, points: 0
             }
         });
@@ -572,9 +574,160 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
     };
 });
 
+const TOURNAMENT_LEAGUE_IDS = [2001, 2146, 2154]; // CL, EL, ECL
+
 ipcMain.handle('simulate-matchday', async (event, leagueId) => {
+    const lid = typeof leagueId === 'string' ? parseInt(leagueId, 10) : leagueId;
+    const groupName = TOURNAMENT_LEAGUE_IDS.includes(lid) ? 'League Phase' : 'League';
+
+    // Champions League: use actual fixtures from DB instead of random pairings
+    if (TOURNAMENT_LEAGUE_IDS.includes(lid)) {
+        const scheduledMatches = await prisma.match.findMany({
+            where: { leagueId: lid, status: 'scheduled' },
+            include: { homeTeam: true, awayTeam: true },
+            orderBy: [{ matchday: 'asc' }, { playedAt: 'asc' }]
+        });
+
+        if (!scheduledMatches || scheduledMatches.length === 0) {
+            throw new Error('No scheduled fixtures for Champions League. Run npm run update-data to fetch fixtures.');
+        }
+
+        // Group by matchday, simulate the earliest matchday first
+        const byMatchday = {};
+        for (const m of scheduledMatches) {
+            const md = m.matchday ?? 1;
+            if (!byMatchday[md]) byMatchday[md] = [];
+            byMatchday[md].push(m);
+        }
+        const targetMatchday = Math.min(...Object.keys(byMatchday).map(Number));
+        const matchesToSim = byMatchday[targetMatchday];
+
+        const results = [];
+        await prisma.$transaction(async (tx) => {
+            for (const m of matchesToSim) {
+                if (!m.homeTeamId || !m.awayTeamId) continue;
+                const home = await prisma.team.findUnique({ where: { id: m.homeTeamId } });
+                const away = await prisma.team.findUnique({ where: { id: m.awayTeamId } });
+                if (!home || !away) continue;
+
+                const homeStr = await calculateTeamStrength(home.id);
+                const awayStr = await calculateTeamStrength(away.id);
+                home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
+                away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
+                home.form = await calculateFormFactor(home.id);
+                away.form = await calculateFormFactor(away.id);
+                home.power = await db.getTeamPower(home.id);
+                away.power = await db.getTeamPower(away.id);
+
+                const res = footballSim.simulateMatch(home, away);
+
+                await tx.match.update({
+                    where: { id: m.id },
+                    data: {
+                        homeScore: res.homeGoals,
+                        awayScore: res.awayGoals,
+                        status: 'finished',
+                        playedAt: new Date()
+                    }
+                });
+
+                if (res.events && res.events.length > 0) {
+                    await tx.matchEvent.createMany({
+                        data: res.events.map(ev => ({
+                            matchId: m.id,
+                            teamId: ev.teamId,
+                            type: ev.type,
+                            minute: ev.minute,
+                            description: ev.description
+                        }))
+                    });
+                }
+
+                const homePts = res.homeGoals > res.awayGoals ? 3 : (res.homeGoals === res.awayGoals ? 1 : 0);
+                const homeWins = res.homeGoals > res.awayGoals ? 1 : 0;
+                const homeDraws = res.homeGoals === res.awayGoals ? 1 : 0;
+                const homeLosses = res.homeGoals < res.awayGoals ? 1 : 0;
+                const awayPts = res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0);
+                const awayWins = res.awayGoals > res.homeGoals ? 1 : 0;
+                const awayDraws = res.awayGoals === res.homeGoals ? 1 : 0;
+                const awayLosses = res.awayGoals < res.homeGoals ? 1 : 0;
+
+                await tx.standing.upsert({
+                    where: {
+                        leagueId_teamId_season_groupName: {
+                            leagueId: lid,
+                            teamId: home.id,
+                            season: CURRENT_SEASON_STR,
+                            groupName
+                        }
+                    },
+                    update: {
+                        played: { increment: 1 },
+                        wins: { increment: homeWins },
+                        draws: { increment: homeDraws },
+                        losses: { increment: homeLosses },
+                        gf: { increment: res.homeGoals },
+                        ga: { increment: res.awayGoals },
+                        points: { increment: homePts }
+                    },
+                    create: {
+                        leagueId: lid,
+                        teamId: home.id,
+                        season: CURRENT_SEASON_STR,
+                        groupName,
+                        played: 1,
+                        wins: homeWins,
+                        draws: homeDraws,
+                        losses: homeLosses,
+                        gf: res.homeGoals,
+                        ga: res.awayGoals,
+                        points: homePts
+                    }
+                });
+                await tx.standing.upsert({
+                    where: {
+                        leagueId_teamId_season_groupName: {
+                            leagueId: lid,
+                            teamId: away.id,
+                            season: CURRENT_SEASON_STR,
+                            groupName
+                        }
+                    },
+                    update: {
+                        played: { increment: 1 },
+                        wins: { increment: awayWins },
+                        draws: { increment: awayDraws },
+                        losses: { increment: awayLosses },
+                        gf: { increment: res.awayGoals },
+                        ga: { increment: res.homeGoals },
+                        points: { increment: awayPts }
+                    },
+                    create: {
+                        leagueId: lid,
+                        teamId: away.id,
+                        season: CURRENT_SEASON_STR,
+                        groupName,
+                        played: 1,
+                        wins: awayWins,
+                        draws: awayDraws,
+                        losses: awayLosses,
+                        gf: res.awayGoals,
+                        ga: res.homeGoals,
+                        points: awayPts
+                    }
+                });
+
+                await updateEloRatings(home.id, away.id, res.homeGoals, res.awayGoals, tx);
+                results.push({ ...res, matchday: targetMatchday });
+            }
+        }, { timeout: 20000 });
+
+        return results;
+    }
+
+    // Domestic leagues: random pairings (existing logic)
     const teams = await prisma.team.findMany({
-        where: { leagueId: leagueId },
+        where: { leagueId: lid },
         include: {
             standings: {
                 where: { season: CURRENT_SEASON_STR },
@@ -607,7 +760,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
     }
 
     const lastMatch = await prisma.match.aggregate({
-        where: { leagueId: leagueId },
+        where: { leagueId: lid },
         _max: { matchday: true }
     });
     const currentMatchday = (lastMatch._max?.matchday || 0) + 1;
@@ -724,12 +877,267 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 }
             });
 
-            await updateEloRatings(m.home.id, m.away.id, res.homeGoals, res.awayGoals);
+            await updateEloRatings(m.home.id, m.away.id, res.homeGoals, res.awayGoals, tx);
             results.push({ ...res, matchday: currentMatchday });
         }
     }, { timeout: 20000 });
 
     return results;
+});
+
+// Knockout round matchdays: 100=Playoffs, 101=R16, 102=QF, 103=SF, 104=Final
+const KO_MATCHDAY = { PLAYOFF: 100, R16: 101, QF: 102, SF: 103, FINAL: 104 };
+
+ipcMain.handle('simulate-tournament-round', async (event, { leagueId }) => {
+    const lid = typeof leagueId === 'string' ? parseInt(leagueId, 10) : leagueId;
+    if (!TOURNAMENT_LEAGUE_IDS.includes(lid)) throw new Error('Tournament simulation only supported for CL/EL/ECL');
+
+    const standings = await prisma.standing.findMany({
+        where: { leagueId: lid, season: CURRENT_SEASON_STR },
+        include: { team: true },
+        orderBy: [{ points: 'desc' }, { gf: 'desc' }]
+    });
+    const sortedTeams = standings.map(s => ({ ...s.team, points: s.points, stats: { played: s.played, wins: s.wins, draws: s.draws, losses: s.losses, gf: s.gf, ga: s.ga } }));
+
+    const existingKo = await prisma.match.findMany({
+        where: { leagueId: lid, matchday: { in: [KO_MATCHDAY.PLAYOFF, KO_MATCHDAY.R16, KO_MATCHDAY.QF, KO_MATCHDAY.SF, KO_MATCHDAY.FINAL] } },
+        include: { homeTeam: true, awayTeam: true }
+    });
+
+    const hasPlayoffs = existingKo.some(m => m.matchday === KO_MATCHDAY.PLAYOFF);
+    const hasR16 = existingKo.some(m => m.matchday === KO_MATCHDAY.R16);
+    const hasQF = existingKo.some(m => m.matchday === KO_MATCHDAY.QF);
+    const hasSF = existingKo.some(m => m.matchday === KO_MATCHDAY.SF);
+    const hasFinal = existingKo.some(m => m.matchday === KO_MATCHDAY.FINAL);
+
+    const playoffTeams = sortedTeams.slice(8, 24);
+    const top8 = sortedTeams.slice(0, 8);
+
+    const enrichTeam = async (t) => {
+        const str = await calculateTeamStrength(t.id);
+        t.att = str.att; t.mid = str.mid; t.def = str.def;
+        t.form = await calculateFormFactor(t.id);
+        t.power = await db.getTeamPower(t.id);
+        return t;
+    };
+
+    if (!hasPlayoffs) {
+        if (playoffTeams.length < 16) {
+            throw new Error(`Need at least 24 teams for playoffs (have ${sortedTeams.length}). Complete League Phase first.`);
+        }
+        // Simulate Playoffs (8 two-legged ties: 9vs24, 10vs23, ...)
+        const results = [];
+        await prisma.$transaction(async (tx) => {
+            for (let i = 0; i < 8; i++) {
+                const home = await enrichTeam({ ...playoffTeams[i] });
+                const away = await enrichTeam({ ...playoffTeams[15 - i] });
+                const leg1 = footballSim.simulateMatch(home, away);
+                const leg2 = footballSim.simulateMatch(away, home);
+                const tie = footballSim.simulateKnockoutTie(
+                    { homeGoals: leg1.homeGoals, awayGoals: leg1.awayGoals, homeId: home.id, awayId: away.id },
+                    { homeGoals: leg2.homeGoals, awayGoals: leg2.awayGoals, homeId: away.id, awayId: home.id },
+                    false
+                );
+                const winnerId = tie.winnerId;
+                const loserId = home.id === winnerId ? away.id : home.id;
+                const winnerAgg = home.id === winnerId ? leg1.homeGoals + leg2.awayGoals : leg1.awayGoals + leg2.homeGoals;
+                const loserAgg = home.id === winnerId ? leg1.awayGoals + leg2.homeGoals : leg1.homeGoals + leg2.awayGoals;
+                await tx.match.create({
+                    data: {
+                        leagueId: lid,
+                        homeTeamId: winnerId,
+                        awayTeamId: loserId,
+                        homeScore: winnerAgg,
+                        awayScore: loserAgg,
+                        matchday: KO_MATCHDAY.PLAYOFF,
+                        status: 'finished',
+                        playedAt: new Date()
+                    }
+                });
+                results.push({ round: 'Playoff', winnerId: tie.winnerId });
+            }
+        }, { timeout: 15000 });
+        return { round: 'Playoff', count: 8, results };
+    }
+
+    if (hasPlayoffs && !hasR16) {
+        // Get playoff winners from DB
+        const playoffMatches = await prisma.match.findMany({
+            where: { leagueId: lid, matchday: KO_MATCHDAY.PLAYOFF },
+            include: { homeTeam: true, awayTeam: true }
+        });
+        const playoffWinners = playoffMatches.map(m => {
+            const winnerId = m.homeTeamId; // We store winner as home in playoff matches
+            return sortedTeams.find(t => t.id === winnerId) || (m.homeTeam);
+        }).filter(Boolean);
+
+        if (playoffWinners.length !== 8) throw new Error('Playoff winners incomplete');
+
+        const r16Pairs = [];
+        for (let i = 0; i < 8; i++) {
+            r16Pairs.push({ home: top8[i], away: playoffWinners[7 - i] });
+        }
+
+        await prisma.$transaction(async (tx) => {
+            for (const p of r16Pairs) {
+                const home = await enrichTeam({ ...p.home });
+                const away = await enrichTeam({ ...p.away });
+                const res = footballSim.simulateMatch(home, away);
+                await tx.match.create({
+                    data: {
+                        leagueId: lid,
+                        homeTeamId: home.id,
+                        awayTeamId: away.id,
+                        homeScore: res.homeGoals,
+                        awayScore: res.awayGoals,
+                        matchday: KO_MATCHDAY.R16,
+                        status: 'finished',
+                        playedAt: new Date()
+                    }
+                });
+            }
+        }, { timeout: 15000 });
+        return { round: 'R16', count: 8 };
+    }
+
+    if (hasR16 && !hasQF) {
+        const r16Matches = await prisma.match.findMany({
+            where: { leagueId: lid, matchday: KO_MATCHDAY.R16 },
+            include: { homeTeam: true, awayTeam: true }
+        });
+        const qfPairs = [
+            [r16Matches[0], r16Matches[1]],
+            [r16Matches[2], r16Matches[3]],
+            [r16Matches[4], r16Matches[5]],
+            [r16Matches[6], r16Matches[7]]
+        ].map(([a, b]) => {
+            const winA = (a.homeScore ?? 0) > (a.awayScore ?? 0) ? a.homeTeam : a.awayTeam;
+            const winB = (b.homeScore ?? 0) > (b.awayScore ?? 0) ? b.homeTeam : b.awayTeam;
+            return { home: winA, away: winB };
+        });
+
+        await prisma.$transaction(async (tx) => {
+            for (const p of qfPairs) {
+                const home = await enrichTeam({ ...p.home });
+                const away = await enrichTeam({ ...p.away });
+                const res = footballSim.simulateMatch(home, away);
+                await tx.match.create({
+                    data: {
+                        leagueId: lid,
+                        homeTeamId: home.id,
+                        awayTeamId: away.id,
+                        homeScore: res.homeGoals,
+                        awayScore: res.awayGoals,
+                        matchday: KO_MATCHDAY.QF,
+                        status: 'finished',
+                        playedAt: new Date()
+                    }
+                });
+            }
+        }, { timeout: 15000 });
+        return { round: 'QF', count: 4 };
+    }
+
+    if (hasQF && !hasSF) {
+        const qfMatches = await prisma.match.findMany({
+            where: { leagueId: lid, matchday: KO_MATCHDAY.QF },
+            include: { homeTeam: true, awayTeam: true }
+        });
+        const sfPairs = [
+            [qfMatches[0], qfMatches[1]],
+            [qfMatches[2], qfMatches[3]]
+        ].map(([a, b]) => {
+            const winA = (a.homeScore ?? 0) > (a.awayScore ?? 0) ? a.homeTeam : a.awayTeam;
+            const winB = (b.homeScore ?? 0) > (b.awayScore ?? 0) ? b.homeTeam : b.awayTeam;
+            return { home: winA, away: winB };
+        });
+
+        await prisma.$transaction(async (tx) => {
+            for (const p of sfPairs) {
+                const home = await enrichTeam({ ...p.home });
+                const away = await enrichTeam({ ...p.away });
+                const res = footballSim.simulateMatch(home, away);
+                await tx.match.create({
+                    data: {
+                        leagueId: lid,
+                        homeTeamId: home.id,
+                        awayTeamId: away.id,
+                        homeScore: res.homeGoals,
+                        awayScore: res.awayGoals,
+                        matchday: KO_MATCHDAY.SF,
+                        status: 'finished',
+                        playedAt: new Date()
+                    }
+                });
+            }
+        }, { timeout: 15000 });
+        return { round: 'SF', count: 2 };
+    }
+
+    if (hasSF && !hasFinal) {
+        const sfMatches = await prisma.match.findMany({
+            where: { leagueId: lid, matchday: KO_MATCHDAY.SF },
+            include: { homeTeam: true, awayTeam: true }
+        });
+        const win0 = (sfMatches[0].homeScore ?? 0) > (sfMatches[0].awayScore ?? 0) ? sfMatches[0].homeTeam : sfMatches[0].awayTeam;
+        const win1 = (sfMatches[1].homeScore ?? 0) > (sfMatches[1].awayScore ?? 0) ? sfMatches[1].homeTeam : sfMatches[1].awayTeam;
+
+        const home = await enrichTeam({ ...win0 });
+        const away = await enrichTeam({ ...win1 });
+        const res = footballSim.simulateMatch(home, away);
+
+        await prisma.match.create({
+            data: {
+                leagueId: lid,
+                homeTeamId: home.id,
+                awayTeamId: away.id,
+                homeScore: res.homeGoals,
+                awayScore: res.awayGoals,
+                matchday: KO_MATCHDAY.FINAL,
+                status: 'finished',
+                playedAt: new Date()
+            }
+        });
+        return { round: 'Final', count: 1 };
+    }
+
+    return { round: null, message: 'Tournament complete or no next round' };
+});
+
+ipcMain.handle('get-tournament-bracket', async (event, { leagueId }) => {
+    const lid = typeof leagueId === 'string' ? parseInt(leagueId, 10) : leagueId;
+    if (!TOURNAMENT_LEAGUE_IDS.includes(lid)) return null;
+
+    const matches = await prisma.match.findMany({
+        where: {
+            leagueId: lid,
+            matchday: { in: [KO_MATCHDAY.PLAYOFF, KO_MATCHDAY.R16, KO_MATCHDAY.QF, KO_MATCHDAY.SF, KO_MATCHDAY.FINAL] }
+        },
+        include: { homeTeam: true, awayTeam: true },
+        orderBy: [{ matchday: 'asc' }, { id: 'asc' }]
+    });
+
+    const toMatch = (m) => ({
+        id: m.id,
+        home: m.homeTeam ? { ...m.homeTeam, short_name: m.homeTeam.shortName || m.homeTeam.name } : null,
+        away: m.awayTeam ? { ...m.awayTeam, short_name: m.awayTeam.shortName || m.awayTeam.name } : null,
+        homeScore: m.homeScore,
+        awayScore: m.awayScore
+    });
+
+    const playoffs = matches.filter(m => m.matchday === KO_MATCHDAY.PLAYOFF).map(toMatch);
+    const r16 = matches.filter(m => m.matchday === KO_MATCHDAY.R16).map(toMatch);
+    const qf = matches.filter(m => m.matchday === KO_MATCHDAY.QF).map(toMatch);
+    const sf = matches.filter(m => m.matchday === KO_MATCHDAY.SF).map(toMatch);
+    const finalMatch = matches.find(m => m.matchday === KO_MATCHDAY.FINAL);
+
+    return {
+        playoffs,
+        r16,
+        qf,
+        sf,
+        final: finalMatch ? toMatch(finalMatch) : null
+    };
 });
 
 ipcMain.handle('simulate-match', async (event, { homeId, awayId }) => {
@@ -747,6 +1155,77 @@ ipcMain.handle('simulate-match', async (event, { homeId, awayId }) => {
     away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
     return footballSim.simulateMatch(home, away);
+});
+
+ipcMain.handle('simulate-single-match', async (event, { matchId }) => {
+    const match = await prisma.match.findUnique({
+        where: { id: matchId },
+        include: { homeTeam: true, awayTeam: true, league: true }
+    });
+    if (!match || !match.homeTeamId || !match.awayTeamId || match.status === 'finished') {
+        throw new Error('Match not found or already finished');
+    }
+
+    const home = await prisma.team.findUnique({ where: { id: match.homeTeamId } });
+    const away = await prisma.team.findUnique({ where: { id: match.awayTeamId } });
+    if (!home || !away) throw new Error('Teams not found');
+
+    const homeStr = await calculateTeamStrength(home.id);
+    const awayStr = await calculateTeamStrength(away.id);
+    home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
+    away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
+    home.form = await calculateFormFactor(home.id);
+    away.form = await calculateFormFactor(away.id);
+    home.power = await db.getTeamPower(home.id);
+    away.power = await db.getTeamPower(away.id);
+
+    const res = footballSim.simulateMatch(home, away);
+    const leagueId = match.leagueId;
+    const groupName = TOURNAMENT_LEAGUE_IDS.includes(leagueId) ? 'League Phase' : 'League';
+
+    await prisma.$transaction(async (tx) => {
+        await tx.match.update({
+            where: { id: matchId },
+            data: {
+                homeScore: res.homeGoals,
+                awayScore: res.awayGoals,
+                status: 'finished',
+                playedAt: new Date()
+            }
+        });
+
+        if (res.events?.length > 0) {
+            await tx.matchEvent.createMany({
+                data: res.events.map(ev => ({
+                    matchId,
+                    teamId: ev.teamId,
+                    type: ev.type,
+                    minute: ev.minute,
+                    description: ev.description
+                }))
+            });
+        }
+
+        const homePts = res.homeGoals > res.awayGoals ? 3 : (res.homeGoals === res.awayGoals ? 1 : 0);
+        const awayPts = res.awayGoals > res.homeGoals ? 3 : (res.awayGoals === res.homeGoals ? 1 : 0);
+        const homeWins = res.homeGoals > res.awayGoals ? 1 : 0, homeDraws = res.homeGoals === res.awayGoals ? 1 : 0, homeLosses = res.homeGoals < res.awayGoals ? 1 : 0;
+        const awayWins = res.awayGoals > res.homeGoals ? 1 : 0, awayDraws = res.awayGoals === res.homeGoals ? 1 : 0, awayLosses = res.awayGoals < res.homeGoals ? 1 : 0;
+
+        await tx.standing.upsert({
+            where: { leagueId_teamId_season_groupName: { leagueId, teamId: home.id, season: CURRENT_SEASON_STR, groupName } },
+            update: { played: { increment: 1 }, wins: { increment: homeWins }, draws: { increment: homeDraws }, losses: { increment: homeLosses }, gf: { increment: res.homeGoals }, ga: { increment: res.awayGoals }, points: { increment: homePts } },
+            create: { leagueId, teamId: home.id, season: CURRENT_SEASON_STR, groupName, played: 1, wins: homeWins, draws: homeDraws, losses: homeLosses, gf: res.homeGoals, ga: res.awayGoals, points: homePts }
+        });
+        await tx.standing.upsert({
+            where: { leagueId_teamId_season_groupName: { leagueId, teamId: away.id, season: CURRENT_SEASON_STR, groupName } },
+            update: { played: { increment: 1 }, wins: { increment: awayWins }, draws: { increment: awayDraws }, losses: { increment: awayLosses }, gf: { increment: res.awayGoals }, ga: { increment: res.homeGoals }, points: { increment: awayPts } },
+            create: { leagueId, teamId: away.id, season: CURRENT_SEASON_STR, groupName, played: 1, wins: awayWins, draws: awayDraws, losses: awayLosses, gf: res.awayGoals, ga: res.homeGoals, points: awayPts }
+        });
+
+        await updateEloRatings(home.id, away.id, res.homeGoals, res.awayGoals, tx);
+    }, { timeout: 15000 });
+
+    return { homeGoals: res.homeGoals, awayGoals: res.awayGoals };
 });
 
 ipcMain.handle('check-ollama-status', async () => {

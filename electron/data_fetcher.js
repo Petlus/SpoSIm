@@ -228,8 +228,8 @@ async function fetchFixtures() {
     const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
     const allFixtures = [];
 
-    const leagueCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'CL'];
-    const leagueIdMap = { BL1: 2002, PL: 2021, PD: 2014, SA: 2019, FL1: 2015, CL: 2001 };
+    const leagueCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'CL', 'EL', 'UCL'];
+    const leagueIdMap = { BL1: 2002, PL: 2021, PD: 2014, SA: 2019, FL1: 2015, CL: 2001, EL: 2146, UCL: 2154 };
 
     for (const code of leagueCodes) {
         await sleep(1500); // Rate limit
@@ -547,9 +547,11 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
         console.log("All teams have players. Skipping player fetch (saves API calls).");
     }
 
-    const CL_ID = 2001;
-    const domesticLeagues = footballData.filter(l => l.id !== CL_ID);
-    const championsLeague = footballData.find(l => l.id === CL_ID);
+    const TOURNAMENT_IDS = [2001, 2146, 2154]; // CL, EL, ECL
+    const domesticLeagues = footballData.filter(l => !TOURNAMENT_IDS.includes(l.id));
+    const championsLeague = footballData.find(l => l.id === 2001);
+    const europaLeague = footballData.find(l => l.id === 2146);
+    const conferenceLeague = footballData.find(l => l.id === 2154);
 
     try {
         await prisma.$transaction(async (tx) => {
@@ -783,26 +785,25 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
                 }
             }
 
-            // 2. Process CHAMPIONS LEAGUE
-            if (championsLeague) {
-                console.log("Saving Champions League...");
+            // 2. Process UEFA TOURNAMENTS (CL, EL, ECL)
+            const tournaments = [
+                { data: championsLeague, id: 2001, name: 'Champions League' },
+                { data: europaLeague, id: 2146, name: 'Europa League' },
+                { data: conferenceLeague, id: 2154, name: 'Conference League' }
+            ];
+            for (const t of tournaments) {
+                if (!t.data) continue;
+                console.log(`Saving ${t.name}...`);
                 await tx.league.upsert({
-                    where: { id: CL_ID },
-                    update: { name: 'Champions League' },
-                    create: { id: CL_ID, name: 'Champions League', type: 'tournament', currentSeason: CURRENT_SEASON_STR }
+                    where: { id: t.id },
+                    update: { name: t.name },
+                    create: { id: t.id, name: t.name, type: 'tournament', country: 'Europe', currentSeason: CURRENT_SEASON_STR }
                 });
 
-                for (const team of championsLeague.teams) {
-                    // Check if team exists to avoid FK error
-                    const existingTeam = await tx.team.findUnique({ where: { id: team.id } });
-
-                    // Upsert Team:
-                    // If exists: DO NOT update leagueId (keep domestic). Update stats/rating.
-                    // If new: Create with leagueId = CL_ID.
+                for (const team of t.data.teams) {
                     await tx.team.upsert({
                         where: { id: team.id },
                         update: {
-                            // Update dynamic stats but preserve domestic league link
                             att: team.att, def: team.def, mid: team.mid,
                             marketValue: team.marketValue,
                             eloRating: team.elo,
@@ -811,7 +812,7 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
                         create: {
                             id: team.id,
                             name: team.name,
-                            leagueId: CL_ID, // Only for teams not in domestic leagues (e.g. Slavia Prague)
+                            leagueId: t.id,
                             att: team.att, def: team.def, mid: team.mid,
                             prestige: 75,
                             budget: Math.floor(team.marketValue * 0.2),
@@ -825,33 +826,33 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
                     await tx.standing.upsert({
                         where: {
                             leagueId_teamId_season_groupName: {
-                                leagueId: CL_ID,
+                                leagueId: t.id,
                                 teamId: team.id,
                                 season: CURRENT_SEASON_STR,
-                                groupName: 'League Phase' // Single table format
+                                groupName: 'League Phase'
                             }
                         },
                         update: {
-                            played: team.stats.played,
-                            wins: team.stats.wins,
-                            draws: team.stats.draws,
-                            losses: team.stats.losses,
-                            gf: team.stats.gf,
-                            ga: team.stats.ga,
-                            points: team.points
+                            played: team.stats?.played || 0,
+                            wins: team.stats?.wins || 0,
+                            draws: team.stats?.draws || 0,
+                            losses: team.stats?.losses || 0,
+                            gf: team.stats?.gf || 0,
+                            ga: team.stats?.ga || 0,
+                            points: team.points || 0
                         },
                         create: {
-                            leagueId: CL_ID,
+                            leagueId: t.id,
                             teamId: team.id,
                             season: CURRENT_SEASON_STR,
                             groupName: 'League Phase',
-                            played: team.stats.played,
-                            wins: team.stats.wins,
-                            draws: team.stats.draws,
-                            losses: team.stats.losses,
-                            gf: team.stats.gf,
-                            ga: team.stats.ga,
-                            points: team.points
+                            played: team.stats?.played || 0,
+                            wins: team.stats?.wins || 0,
+                            draws: team.stats?.draws || 0,
+                            losses: team.stats?.losses || 0,
+                            gf: team.stats?.gf || 0,
+                            ga: team.stats?.ga || 0,
+                            points: team.points || 0
                         }
                     });
                 }
@@ -952,12 +953,12 @@ const KICKER_TEAM_SLUGS = {
     'VfB Stuttgart': 'vfb-stuttgart',
     'Eintracht Frankfurt': 'eintracht-frankfurt',
     'VfL Wolfsburg': 'vfl-wolfsburg',
-    'Borussia Mönchengladbach': 'borussia-moenchengladbach',
+    'Borussia Mönchengladbach': 'bor-moenchengladbach',
     'SC Freiburg': 'sc-freiburg',
     'TSG Hoffenheim': 'tsg-hoffenheim',
     '1. FC Union Berlin': '1-fc-union-berlin',
     'FC Augsburg': 'fc-augsburg',
-    'SV Werder Bremen': 'sv-werder-bremen',
+    'SV Werder Bremen': 'werder-bremen',
     '1. FSV Mainz 05': '1-fsv-mainz-05',
     'VfL Bochum 1848': 'vfl-bochum',
     '1. FC Heidenheim 1846': '1-fc-heidenheim',

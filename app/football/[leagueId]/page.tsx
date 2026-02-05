@@ -44,19 +44,151 @@ export default function LeaguePage() {
     const [noElectron, setNoElectron] = useState(false);
     const [simulating, setSimulating] = useState(false);
     const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures'>('dashboard');
+    const [activeGroup, setActiveGroup] = useState<string | null>(null);
+    const [fixtures, setFixtures] = useState<any[]>([]);
+    const [loadingOdds, setLoadingOdds] = useState(false);
+    const [currentMatchday, setCurrentMatchday] = useState(1);
+    const [minMatchday, setMinMatchday] = useState(1);
+    const [maxMatchday, setMaxMatchday] = useState(34);
+    const [insightsOpen, setInsightsOpen] = useState(false);
+    const [insightsData, setInsightsData] = useState<any>(null);
+    const [loadingInsights, setLoadingInsights] = useState(false);
+    const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'unknown' | 'not_installed' | 'offline' | 'ready'>('checking');
+    const [downloadUrl, setDownloadUrl] = useState('');
+    const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+    const [thoughtProcess, setThoughtProcess] = useState<string | null>(null);
+    const [loadingAi, setLoadingAi] = useState(false);
+    const [setupComplete, setSetupComplete] = useState(false);
 
-    // ... (rest of state)
+    useEffect(() => {
+        if (leagueId) loadData();
+    }, [leagueId]);
 
-    // ... (loadData function)
+    const loadData = async () => {
+        if (!window.electron) {
+            setLoading(false);
+            setNoElectron(true);
+            return;
+        }
+        try {
+            window.electron.getSetupStatus().then((s: any) => { if (s?.setupComplete) setSetupComplete(true); }).catch(() => {});
+            const res = await window.electron.getData('football') as { leagues?: any[], error?: string };
+            const league = res?.leagues?.find((l: any) => String(l.id) === String(leagueId));
+            if (league) {
+                const firstGroup = league.teams?.[0]?.group || 'League';
+                setActiveGroup(g => g ?? firstGroup);
+                league.teams?.sort((a: any, b: any) => (b.points ?? 0) - (a.points ?? 0));
+                setData(league);
+                loadFixtures(leagueId as string);
+            }
+        } catch (err) {
+            console.error("loadData error:", err);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    // ... (helper functions)
+    const loadFixtures = async (lid: string, matchday?: number) => {
+        setLoadingOdds(false);
+        setFixtures([]);
+        if (!window.electron) return;
+        try {
+            const result = await window.electron.getFixtures(parseInt(lid, 10), matchday);
+            if (!result) return;
+            setCurrentMatchday(result.currentMatchday ?? 1);
+            setMinMatchday(result.minMatchday ?? 1);
+            setMaxMatchday(result.maxMatchday ?? 34);
+            const formatted = (result.matches ?? []).map((fix: any) => ({
+                home: fix.home ?? { id: 0, name: 'TBD', short_name: 'TBD', logo: null },
+                away: fix.away ?? { id: 0, name: 'TBD', short_name: 'TBD', logo: null },
+                matchday: fix.matchday,
+                date: fix.date ? new Date(fix.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'TBD',
+                odds: null,
+                loadingOdds: false
+            }));
+            setFixtures(formatted);
+        } catch (err) {
+            console.error("loadFixtures error:", err);
+        }
+    };
+
+    const predictMatch = async (index: number, homeId: number, awayId: number) => {
+        const next = [...fixtures];
+        (next[index] as any).loadingOdds = true;
+        setFixtures(next);
+        if (window.electron) {
+            await new Promise(r => setTimeout(r, 600));
+            const odds = await window.electron.getMatchOdds(homeId, awayId);
+            const after = [...fixtures];
+            (after[index] as any).odds = odds;
+            (after[index] as any).loadingOdds = false;
+            setFixtures(after);
+        }
+    };
+
+    const goToMatchday = (day: number) => {
+        if (day >= minMatchday && day <= maxMatchday && leagueId) loadFixtures(leagueId as string, day);
+    };
+
+    const openInsights = async (home: any, away: any) => {
+        setInsightsOpen(true);
+        setLoadingInsights(true);
+        setAiAnalysis(null);
+        setThoughtProcess(null);
+        if (window.electron) {
+            const d = await window.electron.getAdvancedAnalysis(home.id, away.id);
+            setInsightsData(d);
+        }
+        setLoadingInsights(false);
+    };
+
+    const runSimulate = async () => {
+        setSimulating(true);
+        if (window.electron) await window.electron.simulateMatchday(parseInt(leagueId as string));
+        setTimeout(() => { loadData(); setSimulating(false); }, 800);
+    };
+
+    useEffect(() => {
+        if (insightsOpen && window.electron) checkOllama();
+    }, [insightsOpen]);
+
+    const checkOllama = async () => {
+        setOllamaStatus('checking');
+        try {
+            const timeout = new Promise((_, r) => setTimeout(() => r(new Error('Timeout')), 4000));
+            const result = await Promise.race([window.electron!.checkOllamaStatus(), timeout]) as any;
+            if (!result?.installed) { setOllamaStatus('not_installed'); setDownloadUrl(result?.downloadUrl || 'https://ollama.com'); }
+            else if (!result?.running) setOllamaStatus('offline');
+            else setOllamaStatus('ready');
+        } catch { setOllamaStatus('unknown'); }
+    };
+
+    const startOllamaService = async () => {
+        setLoadingAi(true);
+        await window.electron!.startOllama();
+        setTimeout(async () => { await checkOllama(); setLoadingAi(false); }, 3000);
+    };
+
+    const askAi = async () => {
+        if (!insightsData) return;
+        setLoadingAi(true);
+        setAiAnalysis(null);
+        const res = await window.electron!.getAiPrediction(insightsData.home.id, insightsData.away.id, insightsData.odds) as any;
+        setLoadingAi(false);
+        if (res?.success && res?.text) {
+            const think = res.text.match(/<think>([\s\S]*?)<\/think>/);
+            setThoughtProcess(think ? think[1].trim() : null);
+            setAiAnalysis(res.text.replace(/<think>[\s\S]*?<\/think>/, '').trim());
+        } else if (res?.error) setAiAnalysis(`Error: ${res.error}`);
+    };
 
     if (loading) return <div className="p-10 text-slate-400 flex items-center gap-3"><RefreshCw className="animate-spin" size={18} /> Loading...</div>;
     if (noElectron) return <div className="p-10 text-slate-400">Run BetBrain in Electron to use this feature. Start with <code className="bg-slate-800 px-2 py-1 rounded">npm run dev</code></div>;
     if (!data) return <div className="p-10 text-slate-400">League not found</div>;
 
     const uniqueGroups = Array.from(new Set(data.teams.map((t: any) => t.group || 'League')));
-    const filteredTeams = data.teams.filter((t: any) => (t.group || 'League') === activeGroup);
+    const group = activeGroup ?? uniqueGroups[0] ?? 'League';
+    const filteredTeams = data.teams.filter((t: any) => (t.group || 'League') === group);
 
     // Dashboard Hero Widget
     const HeroMatchCard = ({ fixture }: { fixture: any }) => {
@@ -266,7 +398,7 @@ export default function LeaguePage() {
             {uniqueGroups.length > 1 && activeTab === 'standings' && (
                 <div className="flex gap-2 overflow-x-auto pb-3 mb-4">
                     {uniqueGroups.map((g: any) => (
-                        <button key={g} onClick={() => setActiveGroup(g)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${activeGroup === g ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>
+                        <button key={g} onClick={() => setActiveGroup(g)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${group === g ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>
                             {g}
                         </button>
                     ))}

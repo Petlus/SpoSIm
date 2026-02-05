@@ -10,6 +10,7 @@
     "lint": "eslint",
     "update-data": "node electron/data_fetcher.js",
     "update-data:force": "node electron/data_fetcher.js --force",
+    "update-leagues-data": "node electron/scripts/update-leagues-data.js",
     "reset-db": "node electron/reset_db.js"
   },
   "dependencies": {

@@ -1,0 +1,4 @@
+# Python dependencies for scripts (e.g. scrape_kicker_squads.py)
+playwright>=1.40.0
+beautifulsoup4>=4.12.0
+requests>=2.31.0

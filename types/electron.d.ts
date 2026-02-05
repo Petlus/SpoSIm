@@ -17,7 +17,16 @@ export interface ElectronAPI {
         }>;
     }>;
     simulateMatchday: (leagueId: number) => Promise<unknown>;
+    simulateTournamentRound: (leagueId: number) => Promise<{ round: string | null; count?: number; message?: string }>;
+    getTournamentBracket: (leagueId: number) => Promise<{
+        playoffs?: any[];
+        r16?: any[];
+        qf?: any[];
+        sf?: any[];
+        final?: any;
+    } | null>;
     simulateMatch: (data: { homeId: number; awayId: number }) => Promise<unknown>;
+    simulateSingleMatch: (matchId: number) => Promise<{ homeGoals: number; awayGoals: number }>;
     simulateF1Race: (trackId: string) => Promise<unknown>;
     getMatchOdds: (homeId: number, awayId: number) => Promise<unknown>;
     getAdvancedAnalysis: (homeId: number, awayId: number) => Promise<unknown>;
