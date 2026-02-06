@@ -12,6 +12,14 @@ const ESPN_LEAGUES = {
     'fra.1': { name: 'Ligue 1', icon: '🇫🇷', internalCode: 'FL1', internalId: 2015 },
     'uefa.champions': { name: 'Champions League', icon: '🏆', internalCode: 'CL', internalId: 2001 },
     'uefa.europa': { name: 'Europa League', icon: '🏆', internalCode: 'EL', internalId: 2146 },
+    'uefa.europa.conf': { name: 'Conference League', icon: '🏆', internalCode: 'UCL', internalId: 2154 },
+    // Domestic cups (for Cup tab on league pages)
+    'ger.dfb_pokal': { name: 'DFB-Pokal', icon: '🏆', internalCode: 'DFB', internalId: null, type: 'cup', country: 'Germany' },
+    'eng.fa': { name: 'FA Cup', icon: '🏆', internalCode: 'FA', internalId: null, type: 'cup', country: 'England' },
+    'eng.league_cup': { name: 'League Cup', icon: '🏆', internalCode: 'LC', internalId: null, type: 'cup', country: 'England' },
+    'esp.copa_del_rey': { name: 'Copa del Rey', icon: '🏆', internalCode: 'CDR', internalId: null, type: 'cup', country: 'Spain' },
+    'ita.coppa_italia': { name: 'Coppa Italia', icon: '🏆', internalCode: 'CI', internalId: null, type: 'cup', country: 'Italy' },
+    'fra.coupe_de_france': { name: 'Coupe de France', icon: '🏆', internalCode: 'CDF', internalId: null, type: 'cup', country: 'France' },
 };
 
 // ESPN team ID -> our internal team ID mapping
@@ -185,7 +193,7 @@ class EspnService {
     }
 
     async getAllNews() {
-        const leagues = Object.keys(ESPN_LEAGUES);
+        const leagues = Object.entries(ESPN_LEAGUES).filter(([, info]) => info.type !== 'cup').map(([code]) => code);
         const results = await Promise.allSettled(leagues.map(l => this.getNews(l)));
         const allArticles = [];
         for (const r of results) {
@@ -231,7 +239,7 @@ class EspnService {
     }
 
     async getAllScores() {
-        const leagues = Object.keys(ESPN_LEAGUES);
+        const leagues = Object.entries(ESPN_LEAGUES).filter(([, info]) => info.type !== 'cup').map(([code]) => code);
         const results = await Promise.allSettled(leagues.map(l => this.getScores(l)));
         const all = [];
         for (const r of results) {
@@ -247,9 +255,11 @@ class EspnService {
         const home = comp?.competitors?.find(c => c.homeAway === 'home');
         const away = comp?.competitors?.find(c => c.homeAway === 'away');
         const state = status?.type?.state || 'pre';
+        const round = comp?.week?.text || ev.week?.text || ev.name?.split(' - ')?.[0] || null;
         return {
             id: ev.id,
             name: ev.name,
+            round,
             shortName: ev.shortName,
             date: ev.date,
             status: status?.type?.description || 'Unknown',
@@ -565,6 +575,16 @@ class EspnService {
 
     getInternalTeamId(espnId) {
         return ESPN_TO_INTERNAL[parseInt(espnId)] || null;
+    }
+
+    getCupLeagueByCountry(country) {
+        const cup = Object.entries(ESPN_LEAGUES).find(([, info]) => info.type === 'cup' && info.country === country);
+        return cup ? cup[0] : null;
+    }
+
+    getCupNameByCountry(country) {
+        const cup = Object.entries(ESPN_LEAGUES).find(([, info]) => info.type === 'cup' && info.country === country);
+        return cup ? ESPN_LEAGUES[cup[0]].name : null;
     }
 }
 

@@ -315,14 +315,15 @@ app.on('window-all-closed', () => {
 
 async function updateEloRatings(homeId, awayId, homeScore, awayScore, tx = null) {
     const client = tx || prisma;
-    const K_FACTOR = 32;
-    const home = await client.team.findUnique({ where: { id: homeId } });
-    const away = await client.team.findUnique({ where: { id: awayId } });
+    const hid = Number(homeId);
+    const aid = Number(awayId);
+    const home = await client.team.findUnique({ where: { id: hid } });
+    const away = await client.team.findUnique({ where: { id: aid } });
 
     if (!home || !away) return;
 
-    const R_home = home.eloRating || 1500;
-    const R_away = away.eloRating || 1500;
+    const R_home = Number(home.eloRating) || 1500;
+    const R_away = Number(away.eloRating) || 1500;
 
     const Qa = Math.pow(10, R_home / 400);
     const Qb = Math.pow(10, R_away / 400);
@@ -334,11 +335,12 @@ async function updateEloRatings(homeId, awayId, homeScore, awayScore, tx = null)
     else if (awayScore > homeScore) { Sa = 0; Sb = 1; }
     else { Sa = 0.5; Sb = 0.5; }
 
+    const K_FACTOR = 32;
     const newHome = Math.round(R_home + K_FACTOR * (Sa - Ea));
     const newAway = Math.round(R_away + K_FACTOR * (Sb - Eb));
 
-    await client.team.update({ where: { id: homeId }, data: { eloRating: newHome } });
-    await client.team.update({ where: { id: awayId }, data: { eloRating: newAway } });
+    await client.team.update({ where: { id: hid }, data: { eloRating: newHome } });
+    await client.team.update({ where: { id: aid }, data: { eloRating: newAway } });
 }
 
 async function calculateTeamStrength(teamId) {
@@ -351,15 +353,14 @@ async function calculateTeamStrength(teamId) {
 
     const team = await prisma.team.findUnique({ where: { id: teamId } });
 
-    // League Prestige Bonus (Top 5 Leagues)
+    // League Prestige Bonus (Top 5 Leagues) (Number() for BigInt compatibility)
     let prestigeBonus = 0;
-    // Hardcoded IDs for Top 5 leagues from data_fetcher
-    if ([2002, 2021, 2014, 2019, 2015].includes(team?.leagueId)) {
+    if ([2002, 2021, 2014, 2019, 2015].includes(Number(team?.leagueId))) {
         prestigeBonus = 5;
     }
 
     if (!players || players.length < 11) {
-        return team ? { att: team.att || 70, mid: team.mid || 70, def: team.def || 70 } : { att: 70, mid: 70, def: 70 };
+        return team ? { att: Number(team.att) || 70, mid: Number(team.mid) || 70, def: Number(team.def) || 70 } : { att: 70, mid: 70, def: 70 };
     }
 
     // Dynamic Rating
@@ -367,7 +368,7 @@ async function calculateTeamStrength(teamId) {
     const midfielders = players.filter(p => p.position === 'MID').slice(0, 4);
     const defenders = players.filter(p => p.position === 'DEF' || p.position === 'GK').slice(0, 5);
 
-    const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + (b.rating || 70), 0) / arr.length : 70;
+    const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + (Number(b.rating) || 70), 0) / arr.length : 70;
 
     return {
         att: Math.round(avg(forwards) + prestigeBonus),
@@ -387,13 +388,18 @@ async function getTeamForm(teamId, matchCount = 5) {
     });
 
     const form = matches.map(m => {
-        if (m.homeTeamId === teamId) {
-            if (m.homeScore > m.awayScore) return 'W';
-            if (m.homeScore === m.awayScore) return 'D';
+        const homeId = Number(m.homeTeamId);
+        const awayId = Number(m.awayTeamId);
+        const tid = Number(teamId);
+        const hs = Number(m.homeScore);
+        const aw = Number(m.awayScore);
+        if (homeId === tid) {
+            if (hs > aw) return 'W';
+            if (hs === aw) return 'D';
             return 'L';
         } else {
-            if (m.awayScore > m.homeScore) return 'W';
-            if (m.homeScore === m.awayScore) return 'D';
+            if (aw > hs) return 'W';
+            if (hs === aw) return 'D';
             return 'L';
         }
     }); // Newest first
@@ -478,6 +484,8 @@ async function getEspnEnrichedTeamData(internalId) {
  */
 function buildEspnSimContext(homeEspn, awayEspn) {
     if (!homeEspn && !awayEspn) return null;
+    const homePlayed = homeEspn?.standing?.played || 1;
+    const awayPlayed = awayEspn?.standing?.played || 1;
     return {
         homeRank: homeEspn?.standing?.rank || 0,
         awayRank: awayEspn?.standing?.rank || 0,
@@ -485,6 +493,11 @@ function buildEspnSimContext(homeEspn, awayEspn) {
         awayPPG: awayEspn?.standing?.ppg || 0,
         homeForm: homeEspn?.form || '',
         awayForm: awayEspn?.form || '',
+        // Attack/defense strength (goals per game)
+        homeGoalsPerGame: homePlayed > 0 ? (homeEspn?.standing?.goalsFor || 0) / homePlayed : 1.2,
+        awayGoalsPerGame: awayPlayed > 0 ? (awayEspn?.standing?.goalsFor || 0) / awayPlayed : 1.2,
+        homeConcededPerGame: homePlayed > 0 ? (homeEspn?.standing?.goalsAgainst || 0) / homePlayed : 1.2,
+        awayConcededPerGame: awayPlayed > 0 ? (awayEspn?.standing?.goalsAgainst || 0) / awayPlayed : 1.2,
     };
 }
 
@@ -626,6 +639,8 @@ ipcMain.handle('search', async (event, { query }) => {
     }
 });
 
+const LEAGUE_COUNTRY_MAP = { 2002: 'Germany', 2021: 'England', 2014: 'Spain', 2019: 'Italy', 2015: 'France', 2001: 'Europe', 2146: 'Europe', 2154: 'Europe' };
+
 ipcMain.handle('get-data', async (event, category) => {
     try {
         if (category === 'football') {
@@ -671,9 +686,11 @@ ipcMain.handle('get-data', async (event, category) => {
                     take: 10
                 });
 
+                const leagueCountry = LEAGUE_COUNTRY_MAP[l.id] ?? l.country;
                 result.leagues.push({
                     ...l,
                     id: Number(l.id),
+                    country: leagueCountry,
                     teams: mappedTeams,
                     topScorers: topScorers.map(p => ({
                         name: p.name,
@@ -901,7 +918,7 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
 
     const odds = footballSim.simulateMatchOdds(home, away, 1000, espnContext);
 
-    const h2h = await prisma.match.findMany({
+    const h2hRows = await prisma.match.findMany({
         where: {
             OR: [
                 { homeTeamId: homeId, awayTeamId: awayId },
@@ -909,9 +926,16 @@ ipcMain.handle('get-advanced-analysis', async (event, { homeId, awayId }) => {
             ]
         },
         orderBy: { playedAt: 'desc' },
-        take: 5,
-        select: { homeScore: true, awayScore: true } // Simplified fetch
+        take: 10,
+        select: { homeScore: true, awayScore: true, homeTeamId: true, awayTeamId: true, playedAt: true }
     });
+    const h2h = h2hRows.map(m => ({
+        home_team_id: m.homeTeamId,
+        away_team_id: m.awayTeamId,
+        home_score: m.homeScore,
+        away_score: m.awayScore,
+        played_at: m.playedAt
+    }));
 
     const homeScorers = await prisma.player.findMany({
         where: { teamId: homeId },
@@ -1008,10 +1032,10 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
             throw new Error('No scheduled fixtures for Champions League. Run npm run update-data to fetch fixtures.');
         }
 
-        // Group by matchday, simulate the earliest matchday first
+        // Group by matchday, simulate the earliest matchday first (Number() for BigInt compatibility)
         const byMatchday = {};
         for (const m of scheduledMatches) {
-            const md = m.matchday ?? 1;
+            const md = Number(m.matchday ?? 1);
             if (!byMatchday[md]) byMatchday[md] = [];
             byMatchday[md].push(m);
         }
@@ -1026,27 +1050,29 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 const away = await prisma.team.findUnique({ where: { id: m.awayTeamId } });
                 if (!home || !away) continue;
 
-                const homeStr = await calculateTeamStrength(home.id);
-                const awayStr = await calculateTeamStrength(away.id);
+                const homeId = Number(home.id);
+                const awayId = Number(away.id);
+                const homeStr = await calculateTeamStrength(homeId);
+                const awayStr = await calculateTeamStrength(awayId);
                 home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
                 away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
 
                 // ESPN calibration (loaded per match, cached internally by espnService)
                 const [homeEspn, awayEspn] = await Promise.all([
-                    getEspnEnrichedTeamData(home.id),
-                    getEspnEnrichedTeamData(away.id),
+                    getEspnEnrichedTeamData(homeId),
+                    getEspnEnrichedTeamData(awayId),
                 ]);
                 const espnContext = buildEspnSimContext(homeEspn, awayEspn);
 
-                home.form = await calculateFormFactor(home.id, homeEspn);
-                away.form = await calculateFormFactor(away.id, awayEspn);
-                home.power = await db.getTeamPower(home.id);
-                away.power = await db.getTeamPower(away.id);
+                home.form = await calculateFormFactor(homeId, homeEspn);
+                away.form = await calculateFormFactor(awayId, awayEspn);
+                home.power = await db.getTeamPower(homeId);
+                away.power = await db.getTeamPower(awayId);
 
                 const res = footballSim.simulateMatch(home, away, espnContext);
 
                 await tx.match.update({
-                    where: { id: m.id },
+                    where: { id: Number(m.id) },
                     data: {
                         homeScore: res.homeGoals,
                         awayScore: res.awayGoals,
@@ -1058,8 +1084,8 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 if (res.events && res.events.length > 0) {
                     await tx.matchEvent.createMany({
                         data: res.events.map(ev => ({
-                            matchId: m.id,
-                            teamId: ev.teamId,
+                            matchId: Number(m.id),
+                            teamId: ev.teamId != null ? Number(ev.teamId) : null,
                             type: ev.type,
                             minute: ev.minute,
                             description: ev.description
@@ -1080,7 +1106,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     where: {
                         leagueId_teamId_season_groupName: {
                             leagueId: lid,
-                            teamId: home.id,
+                            teamId: homeId,
                             season: CURRENT_SEASON_STR,
                             groupName
                         }
@@ -1096,7 +1122,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     },
                     create: {
                         leagueId: lid,
-                        teamId: home.id,
+                        teamId: homeId,
                         season: CURRENT_SEASON_STR,
                         groupName,
                         played: 1,
@@ -1112,7 +1138,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     where: {
                         leagueId_teamId_season_groupName: {
                             leagueId: lid,
-                            teamId: away.id,
+                            teamId: awayId,
                             season: CURRENT_SEASON_STR,
                             groupName
                         }
@@ -1128,7 +1154,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     },
                     create: {
                         leagueId: lid,
-                        teamId: away.id,
+                        teamId: awayId,
                         season: CURRENT_SEASON_STR,
                         groupName,
                         played: 1,
@@ -1141,7 +1167,24 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     }
                 });
 
-                await updateEloRatings(home.id, away.id, res.homeGoals, res.awayGoals, tx);
+                await updateEloRatings(homeId, awayId, res.homeGoals, res.awayGoals, tx);
+
+                // Update AI predictions with actual result
+                const pred = await tx.aiPrediction.findFirst({
+                    where: {
+                        OR: [
+                            { matchId: Number(m.id) },
+                            { homeTeamId: homeId, awayTeamId: awayId, actualHome: null }
+                        ]
+                    },
+                    orderBy: { createdAt: 'desc' }
+                });
+                if (pred) {
+                    await tx.aiPrediction.update({
+                        where: { id: Number(pred.id) },
+                        data: { actualHome: res.homeGoals, actualAway: res.awayGoals }
+                    });
+                }
                 results.push({ ...res, matchday: targetMatchday });
             }
         }, { timeout: 20000 });
@@ -1189,7 +1232,7 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
         where: { leagueId: lid },
         _max: { matchday: true }
     });
-    const currentMatchday = (lastMatch._max?.matchday || 0) + 1;
+    const currentMatchday = Number(lastMatch._max?.matchday || 0) + 1;
 
     const results = [];
 
@@ -1202,9 +1245,9 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
 
             const createdMatch = await tx.match.create({
                 data: {
-                    leagueId: leagueId,
-                    homeTeamId: m.home.id,
-                    awayTeamId: m.away.id,
+                    leagueId: lid,
+                    homeTeamId: Number(m.home.id),
+                    awayTeamId: Number(m.away.id),
                     homeScore: res.homeGoals,
                     awayScore: res.awayGoals,
                     matchday: currentMatchday,
@@ -1212,13 +1255,13 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     status: 'finished'
                 }
             });
-            const matchId = createdMatch.id;
+            const matchId = Number(createdMatch.id);
 
             if (res.events && res.events.length > 0) {
                 await tx.matchEvent.createMany({
                     data: res.events.map(ev => ({
-                        matchId: matchId,
-                        teamId: ev.teamId,
+                        matchId,
+                        teamId: ev.teamId != null ? Number(ev.teamId) : null,
                         type: ev.type,
                         minute: ev.minute,
                         description: ev.description
@@ -1235,8 +1278,8 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
             await tx.standing.upsert({
                 where: {
                     leagueId_teamId_season_groupName: {
-                        leagueId: leagueId,
-                        teamId: m.home.id,
+                        leagueId: lid,
+                        teamId: Number(m.home.id),
                         season: CURRENT_SEASON_STR,
                         groupName: 'League' // Assuming simplified group logic for matchday sim
                     }
@@ -1251,8 +1294,8 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     points: { increment: homePts }
                 },
                 create: {
-                    leagueId: leagueId,
-                    teamId: m.home.id,
+                    leagueId: lid,
+                    teamId: Number(m.home.id),
                     season: CURRENT_SEASON_STR,
                     groupName: 'League',
                     played: 1,
@@ -1274,8 +1317,8 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
             await tx.standing.upsert({
                 where: {
                     leagueId_teamId_season_groupName: {
-                        leagueId: leagueId,
-                        teamId: m.away.id,
+                        leagueId: lid,
+                        teamId: Number(m.away.id),
                         season: CURRENT_SEASON_STR,
                         groupName: 'League'
                     }
@@ -1290,8 +1333,8 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                     points: { increment: awayPts }
                 },
                 create: {
-                    leagueId: leagueId,
-                    teamId: m.away.id,
+                    leagueId: lid,
+                    teamId: Number(m.away.id),
                     season: CURRENT_SEASON_STR,
                     groupName: 'League',
                     played: 1,
@@ -1304,7 +1347,19 @@ ipcMain.handle('simulate-matchday', async (event, leagueId) => {
                 }
             });
 
-            await updateEloRatings(m.home.id, m.away.id, res.homeGoals, res.awayGoals, tx);
+            await updateEloRatings(Number(m.home.id), Number(m.away.id), res.homeGoals, res.awayGoals, tx);
+
+            // Update AI predictions with actual result
+            const pred = await tx.aiPrediction.findFirst({
+                where: { homeTeamId: Number(m.home.id), awayTeamId: Number(m.away.id), actualHome: null },
+                orderBy: { createdAt: 'desc' }
+            });
+            if (pred) {
+                await tx.aiPrediction.update({
+                    where: { id: Number(pred.id) },
+                    data: { actualHome: res.homeGoals, actualAway: res.awayGoals }
+                });
+            }
             results.push({ ...res, matchday: currentMatchday });
         }
     }, { timeout: 20000 });
@@ -1671,6 +1726,23 @@ ipcMain.handle('simulate-single-match', async (event, { matchId }) => {
         });
 
         await updateEloRatings(home.id, away.id, res.homeGoals, res.awayGoals, tx);
+
+        // Update AI predictions with actual result (most recent unresolved for this matchup)
+        const pred = await tx.aiPrediction.findFirst({
+            where: {
+                OR: [
+                    { matchId },
+                    { homeTeamId: home.id, awayTeamId: away.id, actualHome: null }
+                ]
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        if (pred) {
+            await tx.aiPrediction.update({
+                where: { id: pred.id },
+                data: { actualHome: res.homeGoals, actualAway: res.awayGoals }
+            });
+        }
     }, { timeout: 15000 });
 
     return { homeGoals: res.homeGoals, awayGoals: res.awayGoals };
@@ -1702,7 +1774,7 @@ ipcMain.handle('get-setup-status', async () => {
     return settings;
 });
 
-ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
+ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds, matchId }) => {
     try {
         const home = await prisma.team.findUnique({ where: { id: homeId } });
         const away = await prisma.team.findUnique({ where: { id: awayId } });
@@ -1822,8 +1894,40 @@ ipcMain.handle('get-ai-prediction', async (event, { homeId, awayId, odds }) => {
             odds: espnMatchOdds,
         };
 
+        // Use passed odds or compute; ensure we have odds for AI and for saving prediction
+        let effectiveOdds = odds;
+        if (!effectiveOdds || typeof effectiveOdds.homeWinProb !== 'number') {
+            const homeStr = await calculateTeamStrength(homeId);
+            const awayStr = await calculateTeamStrength(awayId);
+            home.att = homeStr.att; home.mid = homeStr.mid; home.def = homeStr.def;
+            away.att = awayStr.att; away.mid = awayStr.mid; away.def = awayStr.def;
+            home.form = await calculateFormFactor(homeId, homeEspn);
+            away.form = await calculateFormFactor(awayId, awayEspn);
+            const espnCtx = buildEspnSimContext(homeEspn, awayEspn);
+            effectiveOdds = footballSim.simulateMatchOdds(home, away, 1000, espnCtx);
+        }
+
+        // Save prediction for tracking (simulation-based)
+        const simResult = footballSim.simulateMatch(home, away, buildEspnSimContext(homeEspn, awayEspn));
+        const predResult = effectiveOdds.homeWinProb >= effectiveOdds.drawProb && effectiveOdds.homeWinProb >= effectiveOdds.awayWinProb
+            ? 'Home' : effectiveOdds.awayWinProb >= effectiveOdds.drawProb ? 'Away' : 'Draw';
+        try {
+            await prisma.aiPrediction.create({
+                data: {
+                    matchId: matchId || null,
+                    homeTeamId: homeId,
+                    awayTeamId: awayId,
+                    predictedHome: simResult.homeGoals,
+                    predictedAway: simResult.awayGoals,
+                    predictedResult: predResult,
+                }
+            });
+        } catch (e) {
+            console.log('[AiPrediction] Save skipped:', e?.message);
+        }
+
         const context = {
-            home, away, odds, homeDetails, awayDetails, h2h, injuries: injuryText,
+            home, away, odds: effectiveOdds, homeDetails, awayDetails, h2h, injuries: injuryText,
             standings, topPlayers, espn: espnAiContext,
         };
 
@@ -1921,6 +2025,59 @@ ipcMain.handle('espn-get-teams', async (event, league) => {
         console.error('ESPN Teams Error:', e);
         return [];
     }
+});
+
+const LEAGUE_COUNTRY_FALLBACK = { 2002: 'Germany', 2021: 'England', 2014: 'Spain', 2019: 'Italy', 2015: 'France' };
+
+ipcMain.handle('get-cup-matches', async (event, { leagueId }) => {
+    const lid = typeof leagueId === 'string' ? parseInt(leagueId, 10) : leagueId;
+    if (isNaN(lid)) return { cupName: null, matches: [], rounds: [] };
+    const league = await prisma.league.findUnique({ where: { id: lid } });
+    const country = league?.country && league.country !== 'Europe' ? league.country : LEAGUE_COUNTRY_FALLBACK[lid];
+    if (!country) return { cupName: null, matches: [], rounds: [] };
+    const standings = await prisma.standing.findMany({
+        where: { leagueId: lid, season: CURRENT_SEASON_STR },
+        select: { teamId: true }
+    });
+    const cupCode = espnService.getCupLeagueByCountry(country);
+    const cupName = espnService.getCupNameByCountry(country);
+    if (!cupCode || !cupName) return { cupName: null, matches: [], rounds: [] };
+    const leagueTeamIds = new Set(standings.map(s => s.teamId));
+    let scores = [];
+    try {
+        scores = await espnService.getScores(cupCode);
+    } catch (e) {
+        console.log('[get-cup-matches] ESPN error:', e?.message);
+        return { cupName, matches: [], rounds: [] };
+    }
+    const matches = scores.filter(s => {
+        const homeIn = s.home?.internalId && leagueTeamIds.has(s.home.internalId);
+        const awayIn = s.away?.internalId && leagueTeamIds.has(s.away.internalId);
+        return homeIn || awayIn;
+    }).map(s => ({
+        ...s,
+        canSimulate: !!(s.home?.internalId && s.away?.internalId && leagueTeamIds.has(s.home.internalId) && leagueTeamIds.has(s.away.internalId)),
+        round: s.round || s.name?.split(' - ')?.[0] || s.statusDetail || 'Cup'
+    }));
+    const rounds = [...new Set(matches.map(m => m.round))].filter(Boolean);
+    return { cupName, matches, rounds };
+});
+
+ipcMain.handle('get-prediction-stats', async () => {
+    const all = await prisma.aiPrediction.findMany({
+        where: { actualHome: { not: null }, actualAway: { not: null } },
+        select: { predictedResult: true, predictedHome: true, predictedAway: true, actualHome: true, actualAway: true }
+    });
+    let correct1X2 = 0;
+    for (const p of all) {
+        const actualResult = (p.actualHome ?? 0) > (p.actualAway ?? 0) ? 'Home' : (p.actualAway ?? 0) > (p.actualHome ?? 0) ? 'Away' : 'Draw';
+        if (p.predictedResult === actualResult) correct1X2++;
+    }
+    return {
+        total: all.length,
+        correct1X2,
+        accuracyPercent: all.length > 0 ? Math.round((correct1X2 / all.length) * 100) : 0
+    };
 });
 
 ipcMain.handle('espn-get-leagues', () => {

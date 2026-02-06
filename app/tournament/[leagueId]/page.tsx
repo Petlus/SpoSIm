@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Trophy, Play, RefreshCw, Calendar, ChevronLeft, ChevronRight, BarChart3, Activity, X, Sparkles, BrainCircuit, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 
@@ -67,6 +67,11 @@ export default function TournamentPage() {
     const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'unknown' | 'not_installed' | 'offline' | 'ready'>('checking');
     const [downloadUrl, setDownloadUrl] = useState('');
     const [setupComplete, setSetupComplete] = useState(false);
+    const [espnLeagueCode, setEspnLeagueCode] = useState<string | null>(null);
+    const [espnScores, setEspnScores] = useState<any[]>([]);
+    const [loadingEspn, setLoadingEspn] = useState(false);
+    const [tournamentMatchOdds, setTournamentMatchOdds] = useState<Record<string, { homeWinProb: number; drawProb: number; awayWinProb: number; predictedScore?: string; expectedGoals?: { home: number; away: number }; topScores?: { score: string; prob: number }[] }>>({});
+    const [tournamentMatchLoadingOdds, setTournamentMatchLoadingOdds] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         if (leagueId) loadData();
@@ -77,6 +82,34 @@ export default function TournamentPage() {
             loadFixtures();
         }
     }, [league?.id, activeTab]);
+
+    const loadEspnLeagueCode = useCallback(async () => {
+        if (!window.electron || !leagueId) return null;
+        const code = await window.electron.espnGetLeagueCode(parseInt(leagueId as string));
+        if (code) setEspnLeagueCode(code);
+        return code;
+    }, [leagueId]);
+
+    const loadEspnScores = useCallback(async () => {
+        if (!window.electron) return;
+        setLoadingEspn(true);
+        try {
+            const code = espnLeagueCode || await loadEspnLeagueCode();
+            if (code) {
+                const data = await window.electron.espnGetScores(code);
+                setEspnScores(data || []);
+            }
+        } catch (e) { console.error('ESPN scores error:', e); setEspnScores([]); }
+        finally { setLoadingEspn(false); }
+    }, [espnLeagueCode, loadEspnLeagueCode]);
+
+    useEffect(() => {
+        if (leagueId) loadEspnLeagueCode();
+    }, [leagueId]);
+
+    useEffect(() => {
+        if (activeTab === 'fixtures' && (espnLeagueCode || leagueId)) loadEspnScores();
+    }, [activeTab, espnLeagueCode, leagueId]);
 
     const loadData = async () => {
         if (!window.electron) {
@@ -161,17 +194,21 @@ export default function TournamentPage() {
     };
 
     const predictMatch = async (index: number, homeId: number, awayId: number) => {
-        const next = [...fixtures];
-        (next[index] as any).loadingOdds = true;
-        setFixtures(next);
+        const key = `${homeId}-${awayId}`;
+        setTournamentMatchLoadingOdds(prev => ({ ...prev, [key]: true }));
         if (window.electron) {
-            await new Promise(r => setTimeout(r, 400));
-            const odds = await window.electron.getMatchOdds(homeId, awayId);
-            const after = [...fixtures];
-            (after[index] as any).odds = odds;
-            (after[index] as any).loadingOdds = false;
-            setFixtures(after);
+            try {
+                await new Promise(r => setTimeout(r, 400));
+                const odds = await window.electron.getMatchOdds(homeId, awayId) as { homeWinProb?: number; drawProb?: number; awayWinProb?: number; predictedScore?: string; expectedGoals?: { home: number; away: number }; topScores?: { score: string; prob: number }[] };
+                if (odds && typeof odds === 'object') {
+                    setTournamentMatchOdds(prev => ({ ...prev, [key]: { homeWinProb: odds.homeWinProb ?? 33, drawProb: odds.drawProb ?? 34, awayWinProb: odds.awayWinProb ?? 33, predictedScore: odds.predictedScore, expectedGoals: odds.expectedGoals, topScores: odds.topScores } }));
+                    const next = [...fixtures];
+                    (next[index] as any).odds = odds;
+                    setFixtures(next);
+                }
+            } catch (e) { console.error('predictMatch error:', e); }
         }
+        setTournamentMatchLoadingOdds(prev => ({ ...prev, [key]: false }));
     };
 
     const openInsights = async (home: any, away: any) => {
@@ -433,6 +470,10 @@ export default function TournamentPage() {
                             <button onClick={() => goToMatchday(currentMatchday + 1)} disabled={currentMatchday >= maxMatchday} className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                                 <ChevronRight size={18} />
                             </button>
+                            {espnScores.length > 0 && <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono font-bold">ESPN LIVE</span>}
+                            <button onClick={loadEspnScores} disabled={loadingEspn} className="text-slate-400 hover:text-white transition-colors disabled:opacity-50" title="Refresh ESPN data">
+                                <RefreshCw size={16} className={loadingEspn ? 'animate-spin' : ''} />
+                            </button>
                         </div>
                         <button onClick={runSimulateMatchday} disabled={simulating} className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl font-bold text-white text-sm shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 flex items-center gap-2 border border-amber-500/20">
                             {simulating ? <RefreshCw className="animate-spin" size={18} /> : <Play size={18} fill="currentColor" />}
@@ -472,27 +513,46 @@ export default function TournamentPage() {
                                     <div className="text-xs text-slate-500 mb-3">{f.date}</div>
                                     {(f.homeScore !== null && f.awayScore !== null) ? null : (
                                         <div className="space-y-2">
-                                            {f.odds ? (
-                                                <div>
-                                                    <div className="flex justify-between text-xs mb-1 font-mono">
-                                                        <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {f.odds.homeWinProb}%</span>
-                                                        <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {f.odds.drawProb}%</span>
-                                                        <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {f.odds.awayWinProb}%</span>
-                                                    </div>
-                                                    <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
-                                                        <div className="bg-emerald-500" style={{ width: `${f.odds.homeWinProb}%` }}></div>
-                                                        <div className="bg-slate-500" style={{ width: `${f.odds.drawProb}%` }}></div>
-                                                        <div className="bg-rose-500" style={{ width: `${f.odds.awayWinProb}%` }}></div>
-                                                    </div>
-                                                    <button onClick={() => openInsights(f.home, f.away)} className="mt-2 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
-                                                        <BarChart3 size={12} /> View Insights
+                                            {(() => {
+                                                const oddsKey = `${f.home?.id ?? 0}-${f.away?.id ?? 0}`;
+                                                const odds = f.odds ?? tournamentMatchOdds[oddsKey];
+                                                const loadingOdds = f.loadingOdds || tournamentMatchLoadingOdds[oddsKey];
+                                                if (odds) {
+                                                    return (
+                                                        <div>
+                                                            {(odds as any).predictedScore && (
+                                                                <div className="mb-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-center">
+                                                                    <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-bold">Prediction</span>
+                                                                    <div className="text-lg font-black font-mono text-amber-400">{(odds as any).predictedScore}</div>
+                                                                    {(odds as any).expectedGoals && (
+                                                                        <div className="text-[10px] text-slate-500 font-mono">xG: {(odds as any).expectedGoals.home} – {(odds as any).expectedGoals.away}</div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            <div className="flex justify-between text-xs mb-1 font-mono">
+                                                                <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {odds.homeWinProb}%</span>
+                                                                <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {odds.drawProb}%</span>
+                                                                <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {odds.awayWinProb}%</span>
+                                                            </div>
+                                                            <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                                <div className="bg-emerald-500" style={{ width: `${odds.homeWinProb}%` }}></div>
+                                                                <div className="bg-slate-500" style={{ width: `${odds.drawProb}%` }}></div>
+                                                                <div className="bg-rose-500" style={{ width: `${odds.awayWinProb}%` }}></div>
+                                                            </div>
+                                                            {f.home?.id && f.away?.id && (
+                                                                <button onClick={() => openInsights(f.home, f.away)} className="mt-2 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                                    <BarChart3 size={12} /> View Insights
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                }
+                                                return (
+                                                    <button onClick={() => predictMatch(i, f.home?.id ?? 0, f.away?.id ?? 0)} disabled={loadingOdds || !f.home?.id || !f.away?.id} className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70">
+                                                        {loadingOdds ? <><RefreshCw className="animate-spin text-emerald-400" size={14} /> Simulating 1000 Matches...</> : <><Activity size={14} className="text-purple-400" /> Simulate Prediction (1000 Runs)</>}
                                                     </button>
-                                                </div>
-                                            ) : (
-                                                <button onClick={() => predictMatch(i, f.home.id, f.away.id)} disabled={f.loadingOdds || !f.home.id || !f.away.id} className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70">
-                                                    {f.loadingOdds ? <><RefreshCw className="animate-spin text-emerald-400" size={14} /> Simulating 1000 Matches...</> : <><Activity size={14} className="text-purple-400" /> Simulate Prediction (1000 Runs)</>}
-                                                </button>
-                                            )}
+                                                );
+                                            })()}
                                             <button onClick={() => simulateSingleMatch(i, f.id)} disabled={f.simulating || !f.id || f.homeScore !== null} className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all disabled:opacity-50">
                                                 {f.simulating ? <RefreshCw className="animate-spin" size={14} /> : <Play size={14} fill="currentColor" />}
                                                 {f.simulating ? 'Simulating...' : 'Simulate Match'}
@@ -566,6 +626,15 @@ export default function TournamentPage() {
                                 {insightsData.odds && (
                                     <div className="glass-panel p-4">
                                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Activity size={14} /> Monte-Carlo Simulation</h3>
+                                        {(insightsData.odds as any)?.predictedScore && (
+                                            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-center">
+                                                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-bold">Predicted Score</span>
+                                                <div className="text-2xl font-black font-mono text-amber-400 mt-1">{(insightsData.odds as any).predictedScore}</div>
+                                                {(insightsData.odds as any)?.expectedGoals && (
+                                                    <div className="text-xs text-slate-500 font-mono mt-1">Expected Goals: {(insightsData.odds as any).expectedGoals.home} – {(insightsData.odds as any).expectedGoals.away}</div>
+                                                )}
+                                            </div>
+                                        )}
                                         <div className="grid grid-cols-3 gap-4 text-center">
                                             <div><p className={`text-2xl font-bold font-mono ${insightsData.odds.homeWinProb > 60 ? 'text-emerald-400' : 'text-slate-200'}`}>{insightsData.odds.homeWinProb}%</p><p className="text-xs text-slate-500">Home Win</p></div>
                                             <div><p className="text-2xl font-bold text-slate-400 font-mono">{insightsData.odds.drawProb}%</p><p className="text-xs text-slate-500">Draw</p></div>

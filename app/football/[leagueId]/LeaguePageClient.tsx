@@ -15,6 +15,116 @@ const FormDot = ({ result }: { result: string }) => {
     return <div className={`w-2 h-2 rounded-full ${colors[result] || 'bg-slate-700'}`} title={result} />;
 };
 
+// H2H Timeline: horizontal timeline of head-to-head matches
+const H2HTimeline = ({ matches, homeName, awayName }: { matches: any[]; homeName: string; awayName: string }) => {
+    const normalized = matches.map(m => {
+        const date = m.date || m.played_at;
+        const score = m.score ?? (m.home_score != null && m.away_score != null ? `${m.home_score} - ${m.away_score}` : '');
+        return { date: date ? new Date(date).getTime() : 0, score, raw: m };
+    }).filter(m => m.date > 0).sort((a, b) => a.date - b.date);
+    if (normalized.length === 0) return null;
+    const formatDate = (ts: number) => new Date(ts).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: '2-digit' });
+    const w = 100; const h = 24;
+    const pad = 8;
+    const xScale = (i: number) => pad + (i / (normalized.length - 1 || 1)) * (w - 2 * pad);
+    return (
+        <div className="relative">
+            <svg width="100%" viewBox={`0 0 ${w} ${h}`} className="overflow-visible" preserveAspectRatio="none">
+                <line x1={pad} y1={h / 2} x2={w - pad} y2={h / 2} stroke="currentColor" strokeWidth={1} className="text-slate-600" />
+                {normalized.map((m, i) => (
+                    <g key={i}>
+                        <circle cx={xScale(i)} cy={h / 2} r={4} className="fill-slate-600 stroke-slate-800 stroke-[2]" />
+                        <title>{formatDate(m.date)} – {m.score}</title>
+                    </g>
+                ))}
+            </svg>
+            <div className="flex justify-between mt-2 gap-2 flex-wrap">
+                {normalized.map((m, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs" title={formatDate(m.date)}>
+                        <span className="text-slate-500 font-mono shrink-0">{formatDate(m.date)}</span>
+                        <span className="text-slate-300 font-mono font-bold">{m.score}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// Form Chart: cumulative points over last 5-10 games
+const FormChart = ({ form, teamName, maxGames = 10 }: { form: string[] | string; teamName: string; maxGames?: number }) => {
+    const arr = Array.isArray(form) ? form : (typeof form === 'string' ? form.split('') : []);
+    const pts: Record<string, number> = { W: 3, D: 1, L: 0 };
+    const points = arr.slice(-maxGames).map(r => pts[r] ?? 0);
+    const cumulative = points.reduce<number[]>((acc, p) => [...acc, (acc[acc.length - 1] ?? 0) + p], []);
+    if (cumulative.length === 0) return null;
+    const w = 180; const h = 48; const pad = 4;
+    const maxPts = Math.max(...cumulative, 1);
+    const minPts = Math.min(...cumulative, 0);
+    const range = maxPts - minPts || 1;
+    const scaleY = (v: number) => h - pad - ((v - minPts) / range) * (h - 2 * pad);
+    const scaleX = (i: number) => pad + (i / (cumulative.length - 1 || 1)) * (w - 2 * pad);
+    const pathD = cumulative.map((v, i) => `${i === 0 ? 'M' : 'L'} ${scaleX(i)} ${scaleY(v)}`).join(' ');
+    return (
+        <div className="mt-2">
+            <div className="text-[10px] text-slate-500 mb-1">{teamName} – Points trend</div>
+            <svg width={w} height={h} className="overflow-visible">
+                <path d={pathD} fill="none" stroke="currentColor" strokeWidth={1.5} className="text-emerald-400" strokeLinecap="round" strokeLinejoin="round" />
+                {cumulative.map((v, i) => (
+                    <circle key={i} cx={scaleX(i)} cy={scaleY(v)} r={2.5} className="fill-emerald-400" />
+                ))}
+            </svg>
+        </div>
+    );
+};
+
+// Cup Bracket: knockout tree visualization
+const ROUND_ORDER = ['First Round', 'Second Round', 'Round of 32', 'Round of 16', 'Quarter-finals', 'Semi-finals', 'Final'];
+const CupBracket = ({ matches, rounds }: { matches: any[]; rounds: string[] }) => {
+    const sortedRounds = [...rounds].sort((a, b) => {
+        const ia = ROUND_ORDER.findIndex(r => a.toLowerCase().includes(r.toLowerCase().replace('-', ' ').split(' ')[0]));
+        const ib = ROUND_ORDER.findIndex(r => b.toLowerCase().includes(r.toLowerCase().replace('-', ' ').split(' ')[0]));
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+        return a.localeCompare(b);
+    });
+    return (
+        <div className="overflow-x-auto py-4">
+            <div className="flex gap-8 min-w-max" style={{ justifyContent: 'space-between' }}>
+                {sortedRounds.map((round, ri) => {
+                    const roundMatches = matches.filter(m => m.round === round);
+                    if (roundMatches.length === 0) return null;
+                    const scale = Math.pow(2, sortedRounds.length - 1 - ri);
+                    return (
+                        <div key={round} className="flex flex-col gap-4" style={{ minWidth: 200 }}>
+                            <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider text-center sticky top-0 bg-slate-900/95 py-2">{round}</h4>
+                            <div className="flex flex-col gap-3" style={{ gap: `${Math.max(12, 24 * scale)}px` }}>
+                                {roundMatches.map((m: any, mi: number) => (
+                                    <div key={m.id} className="glass-card p-3 border border-amber-500/20 rounded-lg min-w-[180px]">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                                {m.home?.logo && <img src={m.home.logo} className="w-4 h-4 object-contain flex-shrink-0" alt="" />}
+                                                <span className="text-xs font-medium text-white truncate">{m.home?.name || 'TBD'}</span>
+                                            </div>
+                                            <span className="text-xs font-mono font-bold text-slate-400 flex-shrink-0">
+                                                {m.isCompleted ? `${m.home?.score ?? '-'}:${m.away?.score ?? '-'}` : 'vs'}
+                                            </span>
+                                            <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
+                                                <span className="text-xs font-medium text-white truncate text-right">{m.away?.name || 'TBD'}</span>
+                                                {m.away?.logo && <img src={m.away.logo} className="w-4 h-4 object-contain flex-shrink-0" alt="" />}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 // Power Rating calculation
 const calcPowerRating = (team: any) => {
     if (!team.stats || team.stats.played === 0) return 50;
@@ -43,7 +153,7 @@ export default function LeaguePageClient() {
     const [loading, setLoading] = useState(true);
     const [noElectron, setNoElectron] = useState(false);
     const [simulating, setSimulating] = useState(false);
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures' | 'espn-match'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'standings' | 'fixtures' | 'cup' | 'espn-match'>('dashboard');
     const [activeGroup, setActiveGroup] = useState<string | null>(null);
     const [fixtures, setFixtures] = useState<any[]>([]);
     const [loadingOdds, setLoadingOdds] = useState(false);
@@ -61,6 +171,11 @@ export default function LeaguePageClient() {
     const [aiProgress, setAiProgress] = useState<{ progress: number; step: string } | null>(null);
     const [aiError, setAiError] = useState<string | null>(null);
     const [setupComplete, setSetupComplete] = useState(false);
+    const [predictionStats, setPredictionStats] = useState<{ total: number; correct1X2: number; accuracyPercent: number } | null>(null);
+    const [cupData, setCupData] = useState<{ cupName: string; matches: any[]; rounds: string[] } | null>(null);
+    const [loadingCup, setLoadingCup] = useState(false);
+    const [cupMatchOdds, setCupMatchOdds] = useState<Record<string, { homeWinProb: number; drawProb: number; awayWinProb: number }>>({});
+    const [cupMatchLoadingOdds, setCupMatchLoadingOdds] = useState<Record<string, boolean>>({});
 
     // ESPN Real Data
     const [espnLeagueCode, setEspnLeagueCode] = useState<string | null>(null);
@@ -74,6 +189,34 @@ export default function LeaguePageClient() {
     useEffect(() => {
         if (leagueId) loadData();
     }, [leagueId]);
+
+    const loadPredictionStats = useCallback(async () => {
+        if (window.electron) {
+            try {
+                const s = await window.electron.getPredictionStats();
+                setPredictionStats(s);
+            } catch { setPredictionStats(null); }
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'dashboard' && window.electron) loadPredictionStats();
+    }, [activeTab, loadPredictionStats]);
+
+    const loadCupData = useCallback(async () => {
+        if (!window.electron || !leagueId) return;
+        setLoadingCup(true);
+        try {
+            const res = await window.electron.getCupMatches(parseInt(leagueId as string));
+            if (res.cupName && res.matches) setCupData({ cupName: res.cupName, matches: res.matches, rounds: res.rounds || [] });
+            else setCupData(null);
+        } catch { setCupData(null); }
+        finally { setLoadingCup(false); }
+    }, [leagueId]);
+
+    useEffect(() => {
+        if (activeTab === 'cup') loadCupData();
+    }, [activeTab, loadCupData]);
 
     const loadData = async () => {
         if (!window.electron) {
@@ -170,13 +313,18 @@ export default function LeaguePageClient() {
             setMinMatchday(result.minMatchday ?? 1);
             setMaxMatchday(result.maxMatchday ?? 34);
             const formatted = (result.matches ?? []).map((fix: any) => ({
+                id: fix.id,
                 home: fix.home ?? { id: 0, name: 'TBD', short_name: 'TBD', logo: null },
                 away: fix.away ?? { id: 0, name: 'TBD', short_name: 'TBD', logo: null },
                 matchday: fix.matchday,
                 date: fix.date ? new Date(fix.date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'TBD',
                 dateRaw: fix.date,
+                homeScore: fix.homeScore,
+                awayScore: fix.awayScore,
+                status: fix.status,
                 odds: null,
-                loadingOdds: false
+                loadingOdds: false,
+                simulating: false
             }));
             setFixtures(formatted);
         } catch (err) {
@@ -198,6 +346,40 @@ export default function LeaguePageClient() {
         }
     };
 
+    const simulateSingleMatch = async (index: number, matchId: number) => {
+        const next = [...fixtures];
+        (next[index] as any).simulating = true;
+        setFixtures(next);
+        if (!window.electron) return;
+        try {
+            const res = await window.electron.simulateSingleMatch(matchId) as { homeGoals: number; awayGoals: number };
+            const after = [...fixtures];
+            (after[index] as any).homeScore = res.homeGoals;
+            (after[index] as any).awayScore = res.awayGoals;
+            (after[index] as any).simulating = false;
+            setFixtures(after);
+            loadData();
+        } catch (err) {
+            console.error('simulateSingleMatch error:', err);
+            const after = [...fixtures];
+            (after[index] as any).simulating = false;
+            setFixtures(after);
+        }
+    };
+
+    const predictCupMatch = async (homeId: number, awayId: number) => {
+        const key = `${homeId}-${awayId}`;
+        setCupMatchLoadingOdds(prev => ({ ...prev, [key]: true }));
+        if (window.electron) {
+            try {
+                await new Promise(r => setTimeout(r, 400));
+                const odds = await window.electron.getMatchOdds(homeId, awayId);
+                setCupMatchOdds(prev => ({ ...prev, [key]: odds }));
+            } catch (e) { console.error('predictCupMatch error:', e); }
+        }
+        setCupMatchLoadingOdds(prev => ({ ...prev, [key]: false }));
+    };
+
     const goToMatchday = (day: number) => {
         if (day >= minMatchday && day <= maxMatchday && leagueId) loadFixtures(leagueId as string, day);
     };
@@ -217,7 +399,7 @@ export default function LeaguePageClient() {
     const runSimulate = async () => {
         setSimulating(true);
         if (window.electron) await window.electron.simulateMatchday(parseInt(leagueId as string));
-        setTimeout(() => { loadData(); setSimulating(false); }, 800);
+        setTimeout(() => { loadData(); loadPredictionStats(); setSimulating(false); }, 800);
     };
 
     useEffect(() => {
@@ -295,10 +477,18 @@ export default function LeaguePageClient() {
                 <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/30 via-transparent to-slate-900/50"></div>
                 <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
                     <div className="p-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
-                        <span className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/20 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Matchday {currentMatchday}
-                        </span>
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => goToMatchday(currentMatchday - 1)} disabled={currentMatchday <= minMatchday} className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                <ChevronLeft size={18} />
+                            </button>
+                            <span className="px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-bold uppercase tracking-wider text-emerald-400 border border-emerald-500/20 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                Matchday {currentMatchday}
+                            </span>
+                            <button onClick={() => goToMatchday(currentMatchday + 1)} disabled={currentMatchday >= maxMatchday} className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                <ChevronRight size={18} />
+                            </button>
+                        </div>
                         <span className="text-slate-500 text-xs">{fixtures.length} matches</span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -350,6 +540,11 @@ export default function LeaguePageClient() {
                         <button onClick={() => setActiveTab('fixtures')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'fixtures' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
                             <Calendar size={16} /> Matches
                         </button>
+                        {[2002, 2021, 2014, 2019, 2015].includes(Number(leagueId)) && (
+                            <button onClick={() => setActiveTab('cup')} className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${activeTab === 'cup' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                                <Trophy size={16} /> Cup
+                            </button>
+                        )}
                     </div>
                     <button onClick={runSimulate} disabled={simulating} className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 rounded-xl font-bold text-white text-sm shadow-lg shadow-emerald-900/20 transition-all disabled:opacity-50 flex items-center gap-2 border border-emerald-500/20">
                         {simulating ? <RefreshCw className="animate-spin" size={18} /> : <Play size={18} fill="currentColor" />}
@@ -391,6 +586,14 @@ export default function LeaguePageClient() {
                             <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
                                 <div className={`h-full ${ollamaStatus === 'ready' ? 'bg-purple-500 w-full animate-pulse' : 'bg-slate-700 w-1/4'}`}></div>
                             </div>
+                            {predictionStats && predictionStats.total > 0 && (
+                                <div className="mt-3 pt-3 border-t border-white/5">
+                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">AI Accuracy (1X2)</div>
+                                    <div className="text-lg font-bold text-white font-mono mt-0.5">
+                                        {predictionStats.correct1X2} of {predictionStats.total} <span className="text-emerald-400">({predictionStats.accuracyPercent}%)</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -777,37 +980,78 @@ export default function LeaguePageClient() {
                                                             </div>
                                                         </div>
                                                         {m.venue && <div className="mb-3 text-[10px] text-slate-600 truncate">{m.venue}</div>}
-                                                        {simFix?.odds ? (
-                                                            <div>
-                                                                <div className="flex justify-between text-xs mb-1.5 font-mono">
-                                                                    <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {simFix.odds.homeWinProb}%</span>
-                                                                    <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {simFix.odds.drawProb}%</span>
-                                                                    <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {simFix.odds.awayWinProb}%</span>
-                                                                </div>
-                                                                <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
-                                                                    <div className="bg-emerald-500" style={{ width: `${simFix.odds.homeWinProb}%` }}></div>
-                                                                    <div className="bg-slate-500" style={{ width: `${simFix.odds.drawProb}%` }}></div>
-                                                                    <div className="bg-rose-500" style={{ width: `${simFix.odds.awayWinProb}%` }}></div>
-                                                                </div>
-                                                                <button onClick={() => openInsights({ id: homeInternalId, name: m.home.name }, { id: awayInternalId, name: m.away.name })} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
-                                                                    <BarChart3 size={12} /> View Insights
-                                                                </button>
-                                                            </div>
-                                                        ) : homeInternalId && awayInternalId ? (
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (m.simFixIdx >= 0) {
-                                                                        predictMatch(m.simFixIdx!, homeInternalId, awayInternalId);
-                                                                    } else {
-                                                                        openInsights({ id: homeInternalId, name: m.home.name }, { id: awayInternalId, name: m.away.name });
-                                                                    }
-                                                                }}
-                                                                className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all"
-                                                            >
-                                                                <Activity size={14} className="text-purple-400" />
-                                                                {m.simFixIdx >= 0 ? 'Simulate Prediction (1000 Runs)' : 'View Insights'}
-                                                            </button>
-                                                        ) : null}
+                                                        {(() => {
+                                                            const oddsKey = `${homeInternalId}-${awayInternalId}`;
+                                                            const cupOdds = cupMatchOdds[oddsKey];
+                                                            const cupLoading = cupMatchLoadingOdds[oddsKey];
+                                                            const odds = simFix?.odds ?? cupOdds;
+                                                            if (odds) {
+                                                                return (
+                                                                    <div className="space-y-2">
+                                                                        <div>
+                                                                            {(odds as any).predictedScore && (
+                                                                                <div className="mb-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-center">
+                                                                                    <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-bold">Prediction</span>
+                                                                                    <div className="text-lg font-black font-mono text-amber-400">{(odds as any).predictedScore}</div>
+                                                                                    {(odds as any).expectedGoals && (
+                                                                                        <div className="text-[10px] text-slate-500 font-mono">xG: {(odds as any).expectedGoals.home} – {(odds as any).expectedGoals.away}</div>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                            <div className="flex justify-between text-xs mb-1.5 font-mono">
+                                                                                <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {odds.homeWinProb}%</span>
+                                                                                <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {odds.drawProb}%</span>
+                                                                                <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {odds.awayWinProb}%</span>
+                                                                            </div>
+                                                                            <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                                                <div className="bg-emerald-500" style={{ width: `${odds.homeWinProb}%` }}></div>
+                                                                                <div className="bg-slate-500" style={{ width: `${odds.drawProb}%` }}></div>
+                                                                                <div className="bg-rose-500" style={{ width: `${odds.awayWinProb}%` }}></div>
+                                                                            </div>
+                                                                            <button onClick={() => openInsights({ id: homeInternalId, name: m.home.name }, { id: awayInternalId, name: m.away.name })} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                                                <BarChart3 size={12} /> View Insights
+                                                                            </button>
+                                                                        </div>
+                                                                        {simFix?.id && simFix?.homeScore == null && (
+                                                                            <button onClick={() => simulateSingleMatch(m.simFixIdx!, simFix.id)} disabled={simFix.simulating} className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all disabled:opacity-50">
+                                                                                {simFix.simulating ? <RefreshCw className="animate-spin" size={14} /> : <Play size={14} fill="currentColor" />}
+                                                                                {simFix.simulating ? 'Simulating...' : 'Simulate Match'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            if (homeInternalId && awayInternalId) {
+                                                                return (
+                                                                    <div className="space-y-2">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                if (m.simFixIdx >= 0) {
+                                                                                    predictMatch(m.simFixIdx!, homeInternalId, awayInternalId);
+                                                                                } else {
+                                                                                    predictCupMatch(homeInternalId, awayInternalId);
+                                                                                }
+                                                                            }}
+                                                                            disabled={m.simFixIdx >= 0 ? (fixtures[m.simFixIdx] as any)?.loadingOdds : cupLoading}
+                                                                            className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70"
+                                                                        >
+                                                                            {(m.simFixIdx >= 0 ? (fixtures[m.simFixIdx] as any)?.loadingOdds : cupLoading) ? (
+                                                                                <><RefreshCw className="animate-spin text-emerald-400" size={14} /> Simulating 1000 Matches...</>
+                                                                            ) : (
+                                                                                <><Activity size={14} className="text-purple-400" /> Simulate Prediction (1000 Runs)</>
+                                                                            )}
+                                                                        </button>
+                                                                        {simFix?.id && simFix?.homeScore == null && (
+                                                                            <button onClick={() => simulateSingleMatch(m.simFixIdx!, simFix.id)} disabled={simFix.simulating} className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all disabled:opacity-50">
+                                                                                {simFix.simulating ? <RefreshCw className="animate-spin" size={14} /> : <Play size={14} fill="currentColor" />}
+                                                                                {simFix.simulating ? 'Simulating...' : 'Simulate Match'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
                                                     </div>
                                                 );
                                             })}
@@ -882,7 +1126,7 @@ export default function LeaguePageClient() {
                                                 </div>
                                                 <span className="font-semibold text-white text-sm truncate">{f.home.short_name || f.home.name}</span>
                                             </div>
-                                            <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>
+                                            {(f.homeScore !== null && f.awayScore !== null) ? <span className="font-mono font-bold text-white mx-3">{f.homeScore} – {f.awayScore}</span> : <span className="text-slate-600 text-xs mx-2 flex-shrink-0">vs</span>}
                                             <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
                                                 <span className="font-semibold text-white text-sm truncate">{f.away.short_name || f.away.name}</span>
                                                 <div className="w-7 h-7 bg-slate-700 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -890,34 +1134,292 @@ export default function LeaguePageClient() {
                                                 </div>
                                             </div>
                                         </div>
-                                        {f.odds ? (
-                                            <div>
-                                                <div className="flex justify-between text-xs mb-1.5 font-mono">
-                                                    <span className="text-emerald-400">H: {f.odds.homeWinProb}%</span>
-                                                    <span className="text-slate-400">D: {f.odds.drawProb}%</span>
-                                                    <span className="text-rose-400">A: {f.odds.awayWinProb}%</span>
-                                                </div>
-                                                <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
-                                                    <div className="bg-emerald-500" style={{ width: `${f.odds.homeWinProb}%` }}></div>
-                                                    <div className="bg-slate-500" style={{ width: `${f.odds.drawProb}%` }}></div>
-                                                    <div className="bg-rose-500" style={{ width: `${f.odds.awayWinProb}%` }}></div>
-                                                </div>
-                                                <button onClick={() => openInsights(f.home, f.away)} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
-                                                    <BarChart3 size={12} /> View Insights
+                                        {(f.homeScore !== null && f.awayScore !== null) ? (
+                                            <span className="text-sm font-mono font-bold text-slate-400">{f.homeScore} – {f.awayScore}</span>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {f.odds ? (
+                                                    <div>
+                                                        {(f.odds as any).predictedScore && (
+                                                            <div className="mb-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-center">
+                                                                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-bold">Prediction</span>
+                                                                <div className="text-lg font-black font-mono text-amber-400">{(f.odds as any).predictedScore}</div>
+                                                                {(f.odds as any).expectedGoals && (
+                                                                    <div className="text-[10px] text-slate-500 font-mono">xG: {(f.odds as any).expectedGoals.home} – {(f.odds as any).expectedGoals.away}</div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        <div className="flex justify-between text-xs mb-1.5 font-mono">
+                                                            <span className="text-emerald-400">H: {f.odds.homeWinProb}%</span>
+                                                            <span className="text-slate-400">D: {f.odds.drawProb}%</span>
+                                                            <span className="text-rose-400">A: {f.odds.awayWinProb}%</span>
+                                                        </div>
+                                                        <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                            <div className="bg-emerald-500" style={{ width: `${f.odds.homeWinProb}%` }}></div>
+                                                            <div className="bg-slate-500" style={{ width: `${f.odds.drawProb}%` }}></div>
+                                                            <div className="bg-rose-500" style={{ width: `${f.odds.awayWinProb}%` }}></div>
+                                                        </div>
+                                                        <button onClick={() => openInsights(f.home, f.away)} className="mt-3 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                            <BarChart3 size={12} /> View Insights
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => predictMatch(i, f.home.id, f.away.id)} disabled={f.loadingOdds || !f.home.id || !f.away.id} className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70">
+                                                        {f.loadingOdds ? (
+                                                            <><RefreshCw className="animate-spin text-emerald-400" size={14} /><span className="text-emerald-400">Simulating...</span></>
+                                                        ) : (
+                                                            <><Activity size={14} className="text-purple-400" /> Simulate Prediction</>
+                                                        )}
+                                                    </button>
+                                                )}
+                                                <button onClick={() => simulateSingleMatch(i, f.id)} disabled={f.simulating || !f.id || f.homeScore != null} className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all disabled:opacity-50">
+                                                    {f.simulating ? <RefreshCw className="animate-spin" size={14} /> : <Play size={14} fill="currentColor" />}
+                                                    {f.simulating ? 'Simulating...' : 'Simulate Match'}
                                                 </button>
                                             </div>
-                                        ) : (
-                                            <button onClick={() => predictMatch(i, f.home.id, f.away.id)} disabled={f.loadingOdds || !f.home.id || !f.away.id} className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70">
-                                                {f.loadingOdds ? (
-                                                    <><RefreshCw className="animate-spin text-emerald-400" size={14} /><span className="text-emerald-400">Simulating...</span></>
-                                                ) : (
-                                                    <><Activity size={14} className="text-purple-400" /> Simulate Prediction</>
-                                                )}
-                                            </button>
                                         )}
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Cup Tab */}
+            {activeTab === 'cup' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center gap-3 mb-4">
+                        <Trophy size={18} className="text-amber-400" />
+                        <h2 className="text-lg font-bold text-white">{cupData?.cupName || 'Cup'}</h2>
+                    </div>
+                    {loadingCup ? (
+                        <div className="glass-card p-12 flex items-center justify-center gap-3 text-slate-400">
+                            <RefreshCw className="animate-spin" size={20} /> Loading cup matches...
+                        </div>
+                    ) : cupData && cupData.matches.length > 0 ? (
+                        <div className="space-y-6">
+                            {cupData.rounds.length > 0 && (
+                                <div className="glass-card p-4 border border-amber-500/20 rounded-xl">
+                                    <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4">Bracket</h3>
+                                    <CupBracket matches={cupData.matches} rounds={cupData.rounds} />
+                                </div>
+                            )}
+                            {cupData.rounds.length > 0 ? (
+                                cupData.rounds.map(round => {
+                                    const roundMatches = cupData.matches.filter(m => m.round === round);
+                                    if (roundMatches.length === 0) return null;
+                                    return (
+                                        <div key={round}>
+                                            <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-3">{round}</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {roundMatches.map((m: any) => (
+                                                    <div key={m.id} className="glass-card p-4">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <span className="text-[10px] text-slate-500 font-mono">
+                                                                {m.date ? new Date(m.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }) : 'TBD'}
+                                                            </span>
+                                                            {m.isCompleted && <span className="text-[10px] font-bold text-slate-500">FT</span>}
+                                                        </div>
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                {m.home?.logo && <img src={m.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                                <span className="text-sm font-bold text-white truncate">{m.home?.name || 'TBD'}</span>
+                                                            </div>
+                                                            <span className="font-mono font-bold text-slate-300 mx-2 flex-shrink-0">
+                                                                {m.isCompleted ? `${m.home?.score ?? '-'} - ${m.away?.score ?? '-'}` : 'vs'}
+                                                            </span>
+                                                            <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                                <span className="text-sm font-bold text-white truncate text-right">{m.away?.name || 'TBD'}</span>
+                                                                {m.away?.logo && <img src={m.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                            </div>
+                                                        </div>
+                                                        {m.canSimulate && !m.isCompleted && m.home?.internalId && m.away?.internalId && (
+                                                            <div className="space-y-2">
+                                                                {(() => {
+                                                                    const key = `${m.home.internalId}-${m.away.internalId}`;
+                                                                    const odds = cupMatchOdds[key];
+                                                                    const loading = cupMatchLoadingOdds[key];
+                                                                    if (odds) {
+                                                                        return (
+                                                                            <>
+                                                                                <div>
+                                                                                    <div className="flex justify-between text-xs mb-1 font-mono">
+                                                                                        <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {odds.homeWinProb}%</span>
+                                                                                        <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {odds.drawProb}%</span>
+                                                                                        <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {odds.awayWinProb}%</span>
+                                                                                    </div>
+                                                                                    <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                                                        <div className="bg-emerald-500" style={{ width: `${odds.homeWinProb}%` }}></div>
+                                                                                        <div className="bg-slate-500" style={{ width: `${odds.drawProb}%` }}></div>
+                                                                                        <div className="bg-rose-500" style={{ width: `${odds.awayWinProb}%` }}></div>
+                                                                                    </div>
+                                                                                    <button onClick={() => openInsights({ id: m.home.internalId, name: m.home.name }, { id: m.away.internalId, name: m.away.name })} className="mt-2 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                                                        <BarChart3 size={12} /> View Insights
+                                                                                    </button>
+                                                                                </div>
+                                                                                <button
+                                                                                    onClick={async () => {
+                                                                                        if (window.electron) {
+                                                                                            try {
+                                                                                                const res = await window.electron.simulateMatch({ homeId: m.home.internalId, awayId: m.away.internalId }) as any;
+                                                                                                if (res?.homeGoals != null) {
+                                                                                                    alert(`Simulation: ${m.home?.name} ${res.homeGoals} - ${res.awayGoals} ${m.away?.name}`);
+                                                                                                    loadCupData();
+                                                                                                }
+                                                                                            } catch (e) { console.error(e); }
+                                                                                        }
+                                                                                    }}
+                                                                                    className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all"
+                                                                                >
+                                                                                    <Play size={14} fill="currentColor" /> Simulate
+                                                                                </button>
+                                                                            </>
+                                                                        );
+                                                                    }
+                                                                    return (
+                                                                        <>
+                                                                            <button
+                                                                                onClick={() => predictCupMatch(m.home.internalId, m.away.internalId)}
+                                                                                disabled={loading}
+                                                                                className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70"
+                                                                            >
+                                                                                {loading ? <><RefreshCw className="animate-spin text-emerald-400" size={14} /> Simulating 1000 Matches...</> : <><Activity size={14} className="text-purple-400" /> Simulate Prediction (1000 Runs)</>}
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={async () => {
+                                                                                    if (window.electron) {
+                                                                                        try {
+                                                                                            const res = await window.electron.simulateMatch({ homeId: m.home.internalId, awayId: m.away.internalId }) as any;
+                                                                                            if (res?.homeGoals != null) {
+                                                                                                alert(`Simulation: ${m.home?.name} ${res.homeGoals} - ${res.awayGoals} ${m.away?.name}`);
+                                                                                                loadCupData();
+                                                                                            }
+                                                                                        } catch (e) { console.error(e); }
+                                                                                    }
+                                                                                }}
+                                                                                className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all"
+                                                                            >
+                                                                                <Play size={14} fill="currentColor" /> Simulate
+                                                                            </button>
+                                                                        </>
+                                                                    );
+                                                                })()}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {cupData.matches.map((m: any) => (
+                                        <div key={m.id} className="glass-card p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-[10px] text-slate-500 font-mono">
+                                                    {m.date ? new Date(m.date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }) : 'TBD'}
+                                                </span>
+                                                {m.isCompleted && <span className="text-[10px] font-bold text-slate-500">FT</span>}
+                                            </div>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                    {m.home?.logo && <img src={m.home.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                    <span className="text-sm font-bold text-white truncate">{m.home?.name || 'TBD'}</span>
+                                                </div>
+                                                <span className="font-mono font-bold text-slate-300 mx-2 flex-shrink-0">
+                                                    {m.isCompleted ? `${m.home?.score ?? '-'} - ${m.away?.score ?? '-'}` : 'vs'}
+                                                </span>
+                                                <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+                                                    <span className="text-sm font-bold text-white truncate text-right">{m.away?.name || 'TBD'}</span>
+                                                    {m.away?.logo && <img src={m.away.logo} className="w-5 h-5 object-contain flex-shrink-0" alt="" />}
+                                                </div>
+                                            </div>
+                                            {m.canSimulate && !m.isCompleted && m.home?.internalId && m.away?.internalId && (
+                                                <div className="space-y-2">
+                                                    {(() => {
+                                                        const key = `${m.home.internalId}-${m.away.internalId}`;
+                                                        const odds = cupMatchOdds[key];
+                                                        const loading = cupMatchLoadingOdds[key];
+                                                        if (odds) {
+                                                            return (
+                                                                <>
+                                                                    <div>
+                                                                        <div className="flex justify-between text-xs mb-1 font-mono">
+                                                                            <span className="text-emerald-400 flex items-center gap-1"><TrendingUp size={11} /> H: {odds.homeWinProb}%</span>
+                                                                            <span className="text-slate-400 flex items-center gap-1"><Minus size={11} /> D: {odds.drawProb}%</span>
+                                                                            <span className="text-rose-400 flex items-center gap-1"><TrendingDown size={11} /> A: {odds.awayWinProb}%</span>
+                                                                        </div>
+                                                                        <div className="h-1.5 rounded-full flex overflow-hidden bg-slate-700">
+                                                                            <div className="bg-emerald-500" style={{ width: `${odds.homeWinProb}%` }}></div>
+                                                                            <div className="bg-slate-500" style={{ width: `${odds.drawProb}%` }}></div>
+                                                                            <div className="bg-rose-500" style={{ width: `${odds.awayWinProb}%` }}></div>
+                                                                        </div>
+                                                                        <button onClick={() => openInsights({ id: m.home.internalId, name: m.home.name }, { id: m.away.internalId, name: m.away.name })} className="mt-2 w-full text-xs text-sky-400 hover:text-sky-300 flex items-center justify-center gap-1.5 py-1.5 rounded border border-slate-700 hover:border-sky-500/50 transition-all">
+                                                                            <BarChart3 size={12} /> View Insights
+                                                                        </button>
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            if (window.electron) {
+                                                                                try {
+                                                                                    const res = await window.electron.simulateMatch({ homeId: m.home.internalId, awayId: m.away.internalId }) as any;
+                                                                                    if (res?.homeGoals != null) {
+                                                                                        alert(`Simulation: ${m.home?.name} ${res.homeGoals} - ${res.awayGoals} ${m.away?.name}`);
+                                                                                        loadCupData();
+                                                                                    }
+                                                                                } catch (e) { console.error(e); }
+                                                                            }
+                                                                        }}
+                                                                        className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all"
+                                                                    >
+                                                                        <Play size={14} fill="currentColor" /> Simulate
+                                                                    </button>
+                                                                </>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => predictCupMatch(m.home.internalId, m.away.internalId)}
+                                                                    disabled={loading}
+                                                                    className="w-full h-8 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center justify-center gap-2 text-xs font-medium text-slate-300 transition-all disabled:opacity-70"
+                                                                >
+                                                                    {loading ? <><RefreshCw className="animate-spin text-emerald-400" size={14} /> Simulating 1000 Matches...</> : <><Activity size={14} className="text-purple-400" /> Simulate Prediction (1000 Runs)</>}
+                                                                </button>
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (window.electron) {
+                                                                            try {
+                                                                                const res = await window.electron.simulateMatch({ homeId: m.home.internalId, awayId: m.away.internalId }) as any;
+                                                                                if (res?.homeGoals != null) {
+                                                                                    alert(`Simulation: ${m.home?.name} ${res.homeGoals} - ${res.awayGoals} ${m.away?.name}`);
+                                                                                    loadCupData();
+                                                                                }
+                                                                            } catch (e) { console.error(e); }
+                                                                        }
+                                                                    }}
+                                                                    className="w-full h-8 bg-amber-600/80 hover:bg-amber-500 rounded border border-amber-500/50 flex items-center justify-center gap-2 text-xs font-bold text-white transition-all"
+                                                                >
+                                                                    <Play size={14} fill="currentColor" /> Simulate
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <p className="text-[10px] text-slate-600 text-center">Cup data from ESPN • Matches with both teams in this league can be simulated</p>
+                        </div>
+                    ) : (
+                        <div className="glass-card p-12 text-center text-slate-400">
+                            <Trophy size={48} className="mx-auto mb-4 opacity-50" />
+                            <p className="font-medium">No cup matches found for teams in this league.</p>
+                            <p className="text-sm text-slate-500 mt-2">Cup data is loaded from ESPN. Try again later or check if the cup season has started.</p>
                         </div>
                     )}
                 </div>
@@ -1090,14 +1592,7 @@ export default function LeaguePageClient() {
                             {espnMatchDetail.h2h.length > 0 && (
                                 <div className="glass-card p-5">
                                     <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3">Head to Head</h3>
-                                    <div className="space-y-2">
-                                        {espnMatchDetail.h2h.slice(0, 5).map((g, gi) => (
-                                            <div key={gi} className="flex items-center justify-between text-xs bg-slate-800/30 rounded p-2">
-                                                <span className="text-slate-500 font-mono">{new Date(g.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
-                                                <span className="text-slate-300 font-mono font-bold">{g.score}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <H2HTimeline matches={espnMatchDetail.h2h} homeName={espnMatchDetailEvent?.home?.name || ''} awayName={espnMatchDetailEvent?.away?.name || ''} />
                                 </div>
                             )}
 
@@ -1138,6 +1633,15 @@ export default function LeaguePageClient() {
                                 {/* Monte-Carlo Odds */}
                                 <div className="glass-panel p-4">
                                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Activity size={14} /> Monte-Carlo Simulation</h3>
+                                    {(insightsData.odds as any)?.predictedScore && (
+                                        <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-center">
+                                            <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-bold">Predicted Score</span>
+                                            <div className="text-2xl font-black font-mono text-amber-400 mt-1">{(insightsData.odds as any).predictedScore}</div>
+                                            {(insightsData.odds as any)?.expectedGoals && (
+                                                <div className="text-xs text-slate-500 font-mono mt-1">Expected Goals: {(insightsData.odds as any).expectedGoals.home} – {(insightsData.odds as any).expectedGoals.away}</div>
+                                            )}
+                                        </div>
+                                    )}
                                     <div className="grid grid-cols-3 gap-4 text-center">
                                         <div>
                                             <p className={`text-2xl font-bold font-mono ${insightsData.odds.homeWinProb > 60 ? 'text-emerald-400' : 'text-slate-200'}`}>{insightsData.odds.homeWinProb}%</p>
@@ -1165,10 +1669,14 @@ export default function LeaguePageClient() {
 
                                 {/* Form */}
                                 <div className="glass-panel p-4">
-                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Recent Form (Last 5)</h3>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Recent Form (Last 5–10)</h3>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="flex gap-1.5">{insightsData.home.form.map((r: string, i: number) => <FormDot key={i} result={r} />)}</div>
                                         <div className="flex gap-1.5 justify-end">{insightsData.away.form.map((r: string, i: number) => <FormDot key={i} result={r} />)}</div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 mt-4">
+                                        <FormChart form={insightsData.home.form} teamName={insightsData.home.name} maxGames={10} />
+                                        <FormChart form={insightsData.away.form} teamName={insightsData.away.name} maxGames={10} />
                                     </div>
                                 </div>
 
@@ -1194,15 +1702,7 @@ export default function LeaguePageClient() {
                                 <div className="glass-panel p-4">
                                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">Head-to-Head (Sim)</h3>
                                     {insightsData.h2h.length > 0 ? (
-                                        <div className="space-y-2 text-sm">
-                                            {insightsData.h2h.map((m: any, i: number) => (
-                                                <div key={i} className="flex justify-between text-slate-300">
-                                                    <span>{m.home_team_id === insightsData.home.id ? insightsData.home.name : insightsData.away.name}</span>
-                                                    <span className="font-mono font-bold">{m.home_score} - {m.away_score}</span>
-                                                    <span>{m.away_team_id === insightsData.away.id ? insightsData.away.name : insightsData.home.name}</span>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        <H2HTimeline matches={insightsData.h2h} homeName={insightsData.home.name} awayName={insightsData.away.name} />
                                     ) : <p className="text-slate-600">No previous meetings</p>}
                                 </div>
 
@@ -1288,14 +1788,7 @@ export default function LeaguePageClient() {
                                         {insightsData.espn.h2h?.length > 0 && (
                                             <div className="mb-4">
                                                 <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2 font-bold">Real H2H (ESPN)</div>
-                                                <div className="space-y-1.5">
-                                                    {insightsData.espn.h2h.slice(0, 5).map((g: any, gi: number) => (
-                                                        <div key={gi} className="flex items-center justify-between text-xs bg-slate-800/30 rounded p-2">
-                                                            <span className="text-slate-500 font-mono">{g.date ? new Date(g.date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: '2-digit' }) : ''}</span>
-                                                            <span className="text-slate-300 font-mono font-bold">{g.score}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                                <H2HTimeline matches={insightsData.espn.h2h} homeName={insightsData.home.name} awayName={insightsData.away.name} />
                                             </div>
                                         )}
 

@@ -297,8 +297,11 @@ export interface ElectronAPI {
     getAiPrediction: (
         homeId: number,
         awayId: number,
-        odds: unknown
+        odds: unknown,
+        matchId?: number
     ) => Promise<{ success?: boolean; text?: string; error?: string }>;
+    getPredictionStats: () => Promise<{ total: number; correct1X2: number; accuracyPercent: number }>;
+    getCupMatches: (leagueId: number) => Promise<{ cupName: string | null; matches: any[]; rounds: string[] }>;
     getSetupStatus: () => Promise<{
         ollamaInstalled?: boolean;
         modelDownloaded?: boolean;

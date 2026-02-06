@@ -125,14 +125,18 @@ SIMULATION (1000x Monte-Carlo, kalibriert mit echten ESPN-Daten):
 - ${home.name} Sieg: ${odds.homeWinProb}% ${odds.homeWinProb >= 50 ? '⭐ FAVORIT' : ''}
 - Unentschieden: ${odds.drawProb}% ${odds.drawProb >= 35 ? '⚠️ HOCH' : ''}
 - ${away.name} Sieg: ${odds.awayWinProb}% ${odds.awayWinProb >= 50 ? '⭐ FAVORIT' : ''}
+${odds.avgCards != null ? `- Erwartete Karten: ~${odds.avgCards} | Über 3.5 Karten: ${odds.over35CardsProb ?? '?'}%` : ''}
+${odds.avgCorners != null ? `- Erwartete Ecken: ~${odds.avgCorners} | Über 9.5 Ecken: ${odds.over95CornersProb ?? '?'}%` : ''}
 
-AUFGABE: Gib EINE klare Wett-Empfehlung! Nutze die ECHTEN ESPN-Daten als Hauptgrundlage, ergänzt durch die Simulation.
+AUFGABE: Gib klare Wett-Empfehlungen! Nutze die ECHTEN ESPN-Daten als Hauptgrundlage, ergänzt durch die Simulation.
 
 **Analyse:** (2-3 Sätze: Wer ist Favorit? Warum? Beziehe die echte Form und Tabelle mit ein!)
 
 **MEIN TIPP:** [Ergebnis z.B. 2:1 oder 0:0]
 
-**BESTE WETTE:** [Die eine Wette die am sichersten ist, z.B. "Sieg Bayern", "Über 1.5 Tore", "Beide treffen", "Double Chance 1X", etc.]
+**BESTE WETTE (Safe):** [Die sicherste Empfehlung, z.B. "Sieg Bayern", "Über 1.5 Tore", "Beide treffen", "Double Chance 1X", "Unter 3.5 Karten", "Über 9.5 Ecken" – je nach Datenlage]
+
+**RISIKO-WETTE:** [Eine etwas riskantere, aber lohnenswerte Option mit höheren Odds, z.B. "Exact Score 2:1", "Über 3.5 Tore", "Über 3.5 Karten", "Beide treffen + Über 2.5 Tore"]
 
 Antworte NUR auf Deutsch. Kurz und klar. Nutze echte ESPN-Daten als primäre Basis!`;
 
@@ -146,7 +150,7 @@ Antworte NUR auf Deutsch. Kurz und klar. Nutze echte ESPN-Daten als primäre Bas
                     temperature: 0.3,
                     num_predict: 500
                 },
-                system: "Du bist ein Sportwetten-Experte mit Zugang zu echten ESPN-Livedaten. Gib präzise, strukturierte Wett-Empfehlungen. Priorisiere die ECHTEN ESPN-Daten (Tabelle, Form, Tore, H2H, Buchmacher-Odds) vor Simulationsdaten. Keine langen Erklärungen, nur Fakten und klare Empfehlungen."
+                system: "Du bist ein Sportwetten-Experte mit Zugang zu echten ESPN-Livedaten. Gib präzise, strukturierte Wett-Empfehlungen. Priorisiere die ECHTEN ESPN-Daten (Tabelle, Form, Tore, H2H, Buchmacher-Odds) vor Simulationsdaten. Nutze auch Karten- und Ecken-Vorhersagen wenn sinnvoll. Gib immer eine SICHERE Empfehlung (BESTE WETTE) und eine RISIKO-WETTE mit höheren Odds. Keine langen Erklärungen, nur Fakten und klare Empfehlungen."
             });
 
             if (onProgress) onProgress(95, 'Processing response...');

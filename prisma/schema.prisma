@@ -244,3 +244,18 @@ model AppSettings {
 
   @@map("app_settings")
 }
+
+model AiPrediction {
+  id              Int       @id @default(autoincrement())
+  matchId         Int?      @map("match_id")
+  homeTeamId      Int       @map("home_team_id")
+  awayTeamId      Int       @map("away_team_id")
+  predictedHome   Int       @map("predicted_home")
+  predictedAway   Int       @map("predicted_away")
+  predictedResult String    @map("predicted_result") // "Home" | "Draw" | "Away"
+  actualHome      Int?      @map("actual_home")
+  actualAway      Int?      @map("actual_away")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@map("ai_predictions")
+}

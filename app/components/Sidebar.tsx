@@ -30,17 +30,17 @@ export function Sidebar() {
                 </span>
             </div>
 
-            <nav className="space-y-2 flex-1">
+            <nav className="space-y-3 flex-1 px-3">
                 {menu.map((item) => (
                     item.disabled ? (
                         <div
                             key={item.name}
-                            className="flex items-center gap-4 px-3 py-3 rounded-xl text-slate-600 cursor-not-allowed grayscale opacity-60"
+                            className="flex items-center gap-4 px-3 py-3 rounded-xl text-slate-700 cursor-not-allowed grayscale opacity-40 border border-transparent"
                         >
-                            <item.icon size={22} className="text-slate-600" />
-                            <span className="font-medium hidden md:block">{item.name}</span>
+                            <item.icon size={20} />
+                            <span className="font-medium hidden md:block text-sm">{item.name}</span>
                             {item.badge && (
-                                <span className="ml-auto text-[10px] font-bold bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded hidden md:block">
+                                <span className="ml-auto text-[9px] font-bold bg-slate-800/50 text-slate-500 px-2 py-0.5 rounded-full border border-slate-700/50 hidden md:block uppercase tracking-wider">
                                     {item.badge}
                                 </span>
                             )}
@@ -49,13 +49,16 @@ export function Sidebar() {
                         <a
                             key={item.name}
                             href={item.path}
-                            className={`flex items-center gap-4 px-3 py-3 rounded-xl transition-all duration-300 group ${isActive(item.path)
-                                ? 'bg-gradient-to-r from-emerald-500/10 to-transparent border-l-2 border-emerald-400 text-emerald-400'
-                                : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                            className={`flex items-center gap-4 px-3 py-3 rounded-xl transition-all duration-300 group border ${isActive(item.path)
+                                ? 'bg-gradient-to-r from-emerald-500/20 via-emerald-500/5 to-transparent border-emerald-500/30 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                : 'border-transparent text-slate-400 hover:bg-white/5 hover:text-white hover:border-white/5'
                                 }`}
                         >
-                            <item.icon size={22} className={`${isActive(item.path) ? 'text-emerald-400' : 'text-slate-500 group-hover:text-white'} transition-colors`} />
-                            <span className="font-medium hidden md:block">{item.name}</span>
+                            <item.icon size={20} className={`${isActive(item.path) ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'text-slate-500 group-hover:text-white'} transition-colors duration-300`} />
+                            <span className="font-medium hidden md:block text-sm tracking-wide">{item.name}</span>
+                            {isActive(item.path) && (
+                                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_currentColor] hidden md:block" />
+                            )}
                         </a>
                     )
                 ))}

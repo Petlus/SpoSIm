@@ -6,8 +6,15 @@ const db = require('./db');
 const { LEAGUE_PRESTIGE, LEAGUE_BASE_ELO, TOP_TEAMS_MARKET_VALUE, PLAYER_RATING_MAP, PLAYER_FORM_BONUS } = require('./data_constants');
 const { getSquad, kickerToRating } = require('./data/leagues');
 const { CURRENT_SEASON_STR, CURRENT_SEASON_YEAR, API_MIN_INTERVAL_MS } = require('../config/season');
+const espnService = require('./espn_service');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ESPN leagues (no rate limit) - prefer over football-data.org
+const ESPN_LEAGUE_MAP = {
+    BL1: 'ger.1', PL: 'eng.1', PD: 'esp.1', SA: 'ita.1', FL1: 'fra.1',
+    CL: 'uefa.champions', EL: 'uefa.europa', UCL: 'uefa.europa.conf'
+};
 
 const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
 const FOOTBALL_BASE_URL = "https://api.football-data.org/v4";
@@ -222,36 +229,69 @@ async function fetchFootballData() {
     return Object.values(leagueMap);
 }
 
-// Fetch upcoming fixtures from football-data.org
+// Fetch fixtures: prefer ESPN for tournaments (no rate limit), football-data.org for domestic + fallback
 async function fetchFixtures() {
-    console.log("Fetching Fixtures...");
-    const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
+    console.log("Fetching Fixtures (ESPN preferred for CL/EL/ECL)...");
     const allFixtures = [];
+    const seenMatchIds = new Set();
 
-    const leagueCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1', 'CL', 'EL', 'UCL'];
     const leagueIdMap = { BL1: 2002, PL: 2021, PD: 2014, SA: 2019, FL1: 2015, CL: 2001, EL: 2146, UCL: 2154 };
+    const tournamentCodes = ['CL', 'EL', 'UCL'];
+    const domesticCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1'];
 
-    for (const code of leagueCodes) {
+    // 1. Tournaments: try ESPN first (no rate limit)
+    const tournamentEspnFailed = [];
+    for (const code of tournamentCodes) {
+        const espnLeague = ESPN_LEAGUE_MAP[code];
+        const leagueId = leagueIdMap[code];
+        if (!espnLeague) { tournamentEspnFailed.push(code); continue; }
+        try {
+            const espnFixtures = await fetchFixturesFromESPN(espnLeague, leagueId);
+            for (const f of espnFixtures) {
+                const key = `espn_${f.id}`;
+                if (seenMatchIds.has(key)) continue;
+                seenMatchIds.add(key);
+                allFixtures.push(f);
+            }
+            if (espnFixtures.length > 0) console.log(`-> ESPN fixtures for ${code}: ${espnFixtures.length} matches`);
+            else tournamentEspnFailed.push(code);
+        } catch (err) {
+            console.warn(`ESPN fixtures ${code} failed:`, err.message);
+            tournamentEspnFailed.push(code);
+        }
+    }
+
+    // 2. Domestic + tournament fallback: football-data.org
+    const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
+    const codesToFetch = [...domesticCodes, ...tournamentEspnFailed];
+    for (const code of codesToFetch) {
         await sleep(1500); // Rate limit
         try {
-            let res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15&season=${CURRENT_SEASON_YEAR}`, { headers });
+            const limit = tournamentCodes.includes(code) ? 80 : 15;
+            let res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?limit=${limit}&season=${CURRENT_SEASON_YEAR}`, { headers });
             if (!res.data.matches || res.data.matches.length === 0) {
-                res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?status=SCHEDULED&limit=15&season=2024`, { headers });
+                res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/matches?limit=${limit}&season=2024`, { headers });
             }
             if (res.data.matches && res.data.matches.length > 0) {
-                const matches = res.data.matches.map(m => ({
-                    id: m.id,
-                    leagueId: leagueIdMap[code],
-                    homeTeamId: m.homeTeam.id,
-                    awayTeamId: m.awayTeam.id,
-                    homeTeamName: m.homeTeam.name,
-                    awayTeamName: m.awayTeam.name,
-                    matchday: m.matchday,
-                    utcDate: m.utcDate,
-                    status: 'scheduled'
-                }));
-                allFixtures.push(...matches);
-                console.log(`-> Fetched ${matches.length} fixtures for ${code}`);
+                for (const m of res.data.matches) {
+                    if (seenMatchIds.has(m.id)) continue;
+                    seenMatchIds.add(m.id);
+                    const status = m.status === 'FINISHED' ? 'finished' : (m.status === 'IN_PLAY' || m.status === 'PAUSED' ? 'in_play' : 'scheduled');
+                    allFixtures.push({
+                        id: m.id,
+                        leagueId: leagueIdMap[code],
+                        homeTeamId: m.homeTeam?.id,
+                        awayTeamId: m.awayTeam?.id,
+                        homeTeamName: m.homeTeam?.name,
+                        awayTeamName: m.awayTeam?.name,
+                        matchday: m.matchday ?? 1,
+                        utcDate: m.utcDate,
+                        status,
+                        homeScore: m.score?.fullTime?.home ?? null,
+                        awayScore: m.score?.fullTime?.away ?? null
+                    });
+                }
+                console.log(`-> football-data.org fixtures for ${code}: ${res.data.matches.length} matches`);
             }
         } catch (err) {
             console.error(`Fixtures error ${code}:`, err.message);
@@ -261,28 +301,107 @@ async function fetchFixtures() {
     return allFixtures;
 }
 
-// Fetch current standings from football-data.org
+// Fetch fixtures from ESPN for a league (date range: past 14 days + next 45 days)
+async function fetchFixturesFromESPN(espnLeague, leagueId) {
+    const fixtures = [];
+    const seen = new Set();
+    let fallbackId = 900000000;
+    const now = new Date();
+    for (let d = -14; d <= 45; d++) {
+        const date = new Date(now);
+        date.setDate(date.getDate() + d);
+        const yyyymmdd = date.toISOString().slice(0, 10).replace(/-/g, '');
+        const events = await espnService.getScoresByDate(espnLeague, yyyymmdd);
+        for (const ev of events) {
+            if (seen.has(ev.id)) continue;
+            const homeId = ev.home?.internalId;
+            const awayId = ev.away?.internalId;
+            if (!homeId || !awayId) continue; // skip if teams not in our DB
+            seen.add(ev.id);
+            const status = ev.isCompleted ? 'finished' : (ev.statusState === 'in' ? 'in_play' : 'scheduled');
+            const homeScore = ev.isCompleted && ev.home?.score ? parseInt(String(ev.home.score), 10) : null;
+            const awayScore = ev.isCompleted && ev.away?.score ? parseInt(String(ev.away.score), 10) : null;
+            const matchday = parseMatchdayFromRound(ev.round) || 1;
+            const numericId = /^\d+$/.test(String(ev.id)) ? parseInt(ev.id, 10) : (++fallbackId);
+            fixtures.push({
+                id: numericId,
+                leagueId,
+                homeTeamId: homeId,
+                awayTeamId: awayId,
+                homeTeamName: ev.home?.name || '',
+                awayTeamName: ev.away?.name || '',
+                matchday,
+                utcDate: ev.date,
+                status,
+                homeScore: Number.isNaN(homeScore) ? null : homeScore,
+                awayScore: Number.isNaN(awayScore) ? null : awayScore
+            });
+        }
+    }
+    return fixtures;
+}
+
+function parseMatchdayFromRound(round) {
+    if (!round || typeof round !== 'string') return null;
+    const m = round.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+}
+
+// Fetch standings: prefer ESPN (no rate limit), fallback to football-data.org
 async function fetchStandings() {
-    console.log("Fetching Standings from API...");
-    const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
+    console.log("Fetching Standings (ESPN preferred, football-data.org fallback)...");
     const standingsMap = {}; // teamId -> { played, wins, draws, losses, gf, ga, points }
 
-    const leagueCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1'];
+    const domesticCodes = ['BL1', 'PL', 'PD', 'SA', 'FL1'];
+    const tournamentCodes = ['CL', 'EL', 'UCL'];
+    const allCodes = [...domesticCodes, ...tournamentCodes];
+    const codesNeedingFallback = [];
 
-    for (const code of leagueCodes) {
-        await sleep(1500); // Rate limit
+    // 1. Try ESPN first (no rate limit)
+    for (const code of allCodes) {
+        const espnLeague = ESPN_LEAGUE_MAP[code];
+        if (!espnLeague) continue;
+        try {
+            const entries = await espnService.getStandings(espnLeague);
+            if (entries && entries.length > 0) {
+                for (const e of entries) {
+                    const tid = e.internalId;
+                    if (tid) {
+                        standingsMap[tid] = {
+                            played: parseInt(e.played, 10) || 0,
+                            wins: parseInt(e.wins, 10) || 0,
+                            draws: parseInt(e.draws, 10) || 0,
+                            losses: parseInt(e.losses, 10) || 0,
+                            gf: parseInt(e.goalsFor, 10) || 0,
+                            ga: parseInt(e.goalsAgainst, 10) || 0,
+                            points: parseInt(e.points, 10) || 0,
+                            position: parseInt(e.rank, 10) || 0
+                        };
+                    }
+                }
+                console.log(`-> ESPN standings for ${code}: ${entries.filter(e => e.internalId).length} teams`);
+            } else {
+                codesNeedingFallback.push(code);
+            }
+        } catch (err) {
+            console.warn(`ESPN standings ${code} failed:`, err.message);
+            codesNeedingFallback.push(code);
+        }
+    }
+
+    // 2. Fallback to football-data.org for leagues where ESPN failed or returned empty
+    const headers = { 'X-Auth-Token': FOOTBALL_API_KEY };
+    for (const code of codesNeedingFallback) {
+        await sleep(1500); // Rate limit for football-data.org
         try {
             let res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/standings?season=${CURRENT_SEASON_YEAR}`, { headers });
-            
-            // Fallback to 2024 if no data
             if (!res.data.standings || res.data.standings.length === 0) {
                 res = await axios.get(`${FOOTBALL_BASE_URL}/competitions/${code}/standings?season=2024`, { headers });
             }
-
             if (res.data.standings && res.data.standings.length > 0) {
-                // Find the TOTAL standings (not HOME/AWAY)
-                const totalStandings = res.data.standings.find(s => s.type === 'TOTAL');
-                if (totalStandings && totalStandings.table) {
+                let totalStandings = res.data.standings.find(s => s.type === 'TOTAL');
+                if (!totalStandings) totalStandings = res.data.standings.find(s => s.table?.length) || res.data.standings[0];
+                if (totalStandings?.table) {
                     for (const row of totalStandings.table) {
                         standingsMap[row.team.id] = {
                             played: row.playedGames || 0,
@@ -295,7 +414,7 @@ async function fetchStandings() {
                             position: row.position || 0
                         };
                     }
-                    console.log(`-> Fetched standings for ${code}: ${totalStandings.table.length} teams`);
+                    console.log(`-> football-data.org standings for ${code}: ${totalStandings.table.length} teams`);
                 }
             }
         } catch (err) {
@@ -548,6 +667,7 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
     }
 
     const TOURNAMENT_IDS = [2001, 2146, 2154]; // CL, EL, ECL
+    const LEAGUE_COUNTRY = { 2002: 'Germany', 2021: 'England', 2014: 'Spain', 2019: 'Italy', 2015: 'France' };
     const domesticLeagues = footballData.filter(l => !TOURNAMENT_IDS.includes(l.id));
     const championsLeague = footballData.find(l => l.id === 2001);
     const europaLeague = footballData.find(l => l.id === 2146);
@@ -558,10 +678,11 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
             // 1. Process DOMESTIC LEAGUES
             for (const league of domesticLeagues) {
                 console.log(`Saving Domestic League: ${league.name}`);
+                const country = LEAGUE_COUNTRY[league.id] || 'Europe';
                 await tx.league.upsert({
                     where: { id: league.id },
-                    update: { name: league.name },
-                    create: { id: league.id, name: league.name, country: 'Europe', currentSeason: CURRENT_SEASON_STR }
+                    update: { name: league.name, country },
+                    create: { id: league.id, name: league.name, country, currentSeason: CURRENT_SEASON_STR }
                 });
 
                 for (const team of league.teams) {
@@ -904,11 +1025,13 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
             }
             console.log(`Saving ${fixturesToSave.length} fixtures...`);
             for (const fix of fixturesToSave) {
+                const isFinished = fix.status === 'finished' && fix.homeScore != null && fix.awayScore != null;
                 await tx.match.upsert({
                     where: { id: fix.id },
                     update: {
                         status: fix.status,
-                        playedAt: new Date(fix.utcDate)
+                        playedAt: new Date(fix.utcDate),
+                        ...(isFinished && { homeScore: fix.homeScore, awayScore: fix.awayScore })
                     },
                     create: {
                         id: fix.id,
@@ -918,8 +1041,8 @@ async function updateAllData(options = { prioritySync: false, force: false }) {
                         matchday: fix.matchday,
                         status: fix.status,
                         playedAt: new Date(fix.utcDate),
-                        homeScore: 0,
-                        awayScore: 0
+                        homeScore: isFinished ? fix.homeScore : null,
+                        awayScore: isFinished ? fix.awayScore : null
                     }
                 });
             }
@@ -1086,11 +1209,9 @@ async function fetchAllKickerSquads() {
 // ── ESPN Data Enhancement ────────────────────────────
 // Updates team logos and enriches data using ESPN's free API
 
-const espnService = require('./espn_service');
-
 async function updateTeamLogosFromEspn() {
     console.log("[ESPN] Updating team logos from ESPN...");
-    const leagues = espnService.getLeagues().filter(l => l.internalCode !== 'CL' && l.internalCode !== 'EL');
+    const leagues = espnService.getLeagues().filter(l => l.internalCode !== 'CL' && l.internalCode !== 'EL' && l.type !== 'cup');
     let updated = 0;
 
     for (const league of leagues) {
@@ -1115,7 +1236,7 @@ async function updateTeamLogosFromEspn() {
 
 async function syncStandingsFromEspn() {
     console.log("[ESPN] Syncing real standings from ESPN...");
-    const leagues = espnService.getLeagues().filter(l => !['uefa.champions', 'uefa.europa'].includes(l.code));
+    const leagues = espnService.getLeagues().filter(l => !['uefa.champions', 'uefa.europa'].includes(l.code) && l.type !== 'cup');
     let synced = 0;
 
     for (const league of leagues) {
@@ -1175,7 +1296,7 @@ async function syncStandingsFromEspn() {
  */
 async function syncPlayerRatingsFromEspn() {
     console.log("[ESPN] Syncing player ratings from ESPN rosters...");
-    const leagues = espnService.getLeagues().filter(l => !['uefa.champions', 'uefa.europa'].includes(l.code));
+    const leagues = espnService.getLeagues().filter(l => !['uefa.champions', 'uefa.europa'].includes(l.code) && l.type !== 'cup');
     let updated = 0;
     let errors = 0;
 

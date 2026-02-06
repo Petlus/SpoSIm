@@ -30,21 +30,16 @@ async function getTeamPower(teamId) {
 
     if (!players || players.length === 0) return 50; // Fallback
 
-    // Sum Market Value of Squad
-    let totalMV = 0n;
+    // Sum Market Value of Squad (use Number to avoid BigInt mixing with Float from Prisma)
+    let totalMV = 0;
     players.forEach(p => {
-        if (p.marketValue) totalMV += p.marketValue;
+        if (p.marketValue != null) totalMV += Number(p.marketValue);
     });
 
-    // Convert to Number for Power Calc
-    // Use logarithmic scale
-    const mvNum = Number(totalMV); // e.g. 500M -> 500,000,000
-    // Real Madrid ~1.2B -> Log10(1.2e9) = 9.08
-    // Luton Town ~80M -> Log10(8e7) = 7.9
-    // Difference is small in Log10, so use a steeper multiplier OR normalize differently.
-
-    // Adjusted Formula: Base + (Log10(MV) * Multiplier)
-    let power = (Math.log10(mvNum || 10000000) * 15);
+    // Convert to Number for Power Calc (use logarithmic scale)
+    // Real Madrid ~1.2B -> Log10(1.2e9) = 9.08, Luton Town ~80M -> Log10(8e7) = 7.9
+    const mvNum = totalMV || 10000000;
+    let power = (Math.log10(mvNum) * 15);
     // 1B -> 9 * 15 = 135
     // 50M -> 7.7 * 15 = 115.5
     // 10M -> 7 * 15 = 105
@@ -56,7 +51,7 @@ async function getTeamPower(teamId) {
     });
 
     if (team) {
-        power += (team.eloRating - 1500) / 25; // 1500->0, 2000->20
+        power += (Number(team.eloRating) - 1500) / 25; // 1500->0, 2000->20 (Number for BigInt compatibility)
     }
 
     return power;
@@ -69,8 +64,8 @@ async function updateEloAfterMatch(homeId, awayId, homeScore, awayScore) {
 
     if (!home || !away) return;
 
-    const R_home = home.eloRating || 1500;
-    const R_away = away.eloRating || 1500;
+    const R_home = Number(home.eloRating) || 1500;
+    const R_away = Number(away.eloRating) || 1500;
 
     const Qa = Math.pow(10, R_home / 400);
     const Qb = Math.pow(10, R_away / 400);

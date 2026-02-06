@@ -2,10 +2,11 @@ const footballSim = {};
 
 /**
  * Calculates a match result between two teams.
- * @param {Object} home Team object
+ * @param {Object} home Team object (att, def, mid, form, eloRating, power)
  * @param {Object} away Team object
  * @param {Object|null} espnContext Optional ESPN real-world calibration data
- *   { homeRank, awayRank, homePPG, awayPPG, homeForm, awayForm }
+ *   { homeRank, awayRank, homePPG, awayPPG, homeForm, awayForm,
+ *     homeGoalsPerGame, awayGoalsPerGame, homeConcededPerGame, awayConcededPerGame }
  */
 footballSim.simulateMatch = (home, away, espnContext = null) => {
     // 1. Determine Power/Elo
@@ -17,9 +18,9 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
     let awayStr = 0;
 
     if (useElo) {
-        // Elo Model
-        const homeElo = home.eloRating + 100; // Home Advantage = +100 Elo matches standard logic
-        const awayElo = away.eloRating;
+        // Elo Model (Number() for BigInt compatibility with SQLite/Prisma)
+        const homeElo = Number(home.eloRating) + 100; // Home Advantage = +100 Elo matches standard logic
+        const awayElo = Number(away.eloRating);
 
         homeStr = homeElo;
         awayStr = awayElo;
@@ -28,9 +29,9 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
         // Standard Elo Formula: 1 / (1 + 10^(-diff/400))
         winProb = 1 / (1 + Math.pow(10, -eloDiff / 400));
     } else {
-        // Legacy Power Model
-        const homePower = home.power || 100;
-        const awayPower = away.power || 100;
+        // Legacy Power Model (Number() for BigInt compatibility)
+        const homePower = Number(home.power) || 100;
+        const awayPower = Number(away.power) || 100;
 
         // Home Advantage (+10%)
         homeStr = homePower * 1.10;
@@ -85,7 +86,26 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
         const strAdjust = 1 + espnAdjustment * 0.5; // Halved effect on goals
         homeStr *= strAdjust;
         awayStr *= (2 - strAdjust); // Inverse adjustment for away
+
+        // Attack/defense calibration from real goals data
+        // homeStr vs awayDef: home attack vs away defense. Use homeGoalsPerGame * awayConcededPerGame
+        if (espnContext.homeGoalsPerGame > 0 && espnContext.awayConcededPerGame > 0) {
+            const homeAttackFactor = (espnContext.homeGoalsPerGame / 1.2) * (espnContext.awayConcededPerGame / 1.2);
+            const mult = Math.max(0.7, Math.min(1.4, homeAttackFactor));
+            if (Number.isFinite(mult)) homeStr *= mult;
+        }
+        if (espnContext.awayGoalsPerGame > 0 && espnContext.homeConcededPerGame > 0) {
+            const awayAttackFactor = (espnContext.awayGoalsPerGame / 1.2) * (espnContext.homeConcededPerGame / 1.2);
+            const mult = Math.max(0.7, Math.min(1.4, awayAttackFactor));
+            if (Number.isFinite(mult)) awayStr *= mult;
+        }
     }
+
+    // Form factor (from calculateFormFactor: 0.95 to 1.10 typically)
+    const homeFormMult = Number.isFinite(Number(home.form)) ? Math.max(0.8, Math.min(1.2, Number(home.form))) : 1;
+    const awayFormMult = Number.isFinite(Number(away.form)) ? Math.max(0.8, Math.min(1.2, Number(away.form))) : 1;
+    homeStr *= homeFormMult;
+    awayStr *= awayFormMult;
 
     // 4. Determine Winner using probability
     // We still simulate goals for realism, but bias chance creation heavily
@@ -97,6 +117,8 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
 
     let homeGoals = 0;
     let awayGoals = 0;
+    let totalCards = 0;
+    let totalCorners = 0;
     const events = [];
     const EVENT_TYPES = { GOAL: 'goal', YELLOW: 'card_yellow', RED: 'card_red', INJURY: 'injury', BIG_CHANCE: 'big_chance' };
 
@@ -131,29 +153,18 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
 
             if (Math.random() < shotChance) {
                 // Shot created -> Check for Goal
-                // Conversion rate: 0.25 base (25%)
-                // Boosted by attack quality > 80
-                const qualityBonus = Math.max(0, (home.att - 70) / 100); // e.g. 90 -> 0.2 bonus
+                const qualityBonus = Math.max(0, (Number(home.att) - 70) / 100);
                 const conversionRate = 0.20 + qualityBonus;
                 const roll = Math.random();
 
                 if (roll < conversionRate) {
                     homeGoals++;
-                    events.push({
-                        type: EVENT_TYPES.GOAL,
-                        teamId: home.id,
-                        minute: time - Math.floor(Math.random() * 9),
-                        description: 'Goal'
-                    });
-                } else if (roll < conversionRate + 0.15) { // 15% chance to be a "Missed Big Chance"
-                    events.push({
-                        type: EVENT_TYPES.BIG_CHANCE,
-                        teamId: home.id,
-                        minute: time - Math.floor(Math.random() * 9),
-                        description: 'Big Chance Missed'
-                    });
+                    events.push({ type: EVENT_TYPES.GOAL, teamId: home.id, minute: time - Math.floor(Math.random() * 9), description: 'Goal' });
+                } else {
+                    if (roll < conversionRate + 0.15) events.push({ type: EVENT_TYPES.BIG_CHANCE, teamId: home.id, minute: time - Math.floor(Math.random() * 9), description: 'Big Chance Missed' });
+                    if (Math.random() < 0.4) totalCorners++; // Corner from attack ~40%
                 }
-            }
+            } else if (Math.random() < 0.25) totalCorners++; // Build-up corner
         } else {
             // Away attacking
             const attackPower = awayStr * (1 + (0.5 - homePossessionChance));
@@ -163,42 +174,33 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
             const shotChance = 0.5 * Math.pow(dominance, 1.5);
 
             if (Math.random() < shotChance) {
-                const qualityBonus = Math.max(0, (away.att - 70) / 100);
+                const qualityBonus = Math.max(0, (Number(away.att) - 70) / 100);
                 const conversionRate = 0.20 + qualityBonus;
                 const roll = Math.random();
 
                 if (roll < conversionRate) {
                     awayGoals++;
-                    events.push({
-                        type: EVENT_TYPES.GOAL,
-                        teamId: away.id,
-                        minute: time - Math.floor(Math.random() * 9),
-                        description: 'Goal'
-                    });
-                } else if (roll < conversionRate + 0.15) {
-                    events.push({
-                        type: EVENT_TYPES.BIG_CHANCE,
-                        teamId: away.id,
-                        minute: time - Math.floor(Math.random() * 9),
-                        description: 'Big Chance Missed'
-                    });
+                    events.push({ type: EVENT_TYPES.GOAL, teamId: away.id, minute: time - Math.floor(Math.random() * 9), description: 'Goal' });
+                } else {
+                    if (roll < conversionRate + 0.15) events.push({ type: EVENT_TYPES.BIG_CHANCE, teamId: away.id, minute: time - Math.floor(Math.random() * 9), description: 'Big Chance Missed' });
+                    if (Math.random() < 0.4) totalCorners++;
                 }
-            }
+            } else if (Math.random() < 0.25) totalCorners++;
         }
 
-        // 3. Other Events (Cards/Injuries)
+        // 3. Cards (yellow ~3.5%, red ~0.5% per interval)
         if (Math.random() < 0.035) {
+            totalCards++;
             const victim = Math.random() > 0.5 ? 'home' : 'away';
-            events.push({
-                type: EVENT_TYPES.YELLOW,
-                teamId: victim === 'home' ? home.id : away.id,
-                minute: time,
-                description: 'Yellow Card'
-            });
+            events.push({ type: EVENT_TYPES.YELLOW, teamId: victim === 'home' ? home.id : away.id, minute: time, description: 'Yellow Card' });
+        }
+        if (Math.random() < 0.005) {
+            totalCards += 2;
+            const victim = Math.random() > 0.5 ? 'home' : 'away';
+            events.push({ type: EVENT_TYPES.RED, teamId: victim === 'home' ? home.id : away.id, minute: time, description: 'Red Card' });
         }
     }
 
-    // Sort events by minute
     events.sort((a, b) => a.minute - b.minute);
 
     return {
@@ -207,6 +209,8 @@ footballSim.simulateMatch = (home, away, espnContext = null) => {
         score: `${homeGoals}-${awayGoals}`,
         homeGoals,
         awayGoals,
+        totalCards,
+        totalCorners,
         winner: homeGoals > awayGoals ? home.id : (awayGoals > homeGoals ? away.id : 'draw'),
         events
     };
@@ -216,18 +220,56 @@ footballSim.simulateMatchOdds = (home, away, iterations = 100, espnContext = nul
     let homeWins = 0;
     let draws = 0;
     let awayWins = 0;
+    let totalHomeGoals = 0;
+    let totalAwayGoals = 0;
+    let totalCards = 0;
+    let totalCorners = 0;
+    let over35Cards = 0;
+    let over95Corners = 0;
+    const scoreCounts = {};
 
     for (let i = 0; i < iterations; i++) {
         const res = footballSim.simulateMatch(home, away, espnContext);
         if (res.homeGoals > res.awayGoals) homeWins++;
         else if (res.awayGoals > res.homeGoals) awayWins++;
         else draws++;
+
+        totalHomeGoals += res.homeGoals;
+        totalAwayGoals += res.awayGoals;
+        totalCards += res.totalCards ?? 0;
+        totalCorners += res.totalCorners ?? 0;
+        if ((res.totalCards ?? 0) > 3.5) over35Cards++;
+        if ((res.totalCorners ?? 0) > 9.5) over95Corners++;
+
+        const key = `${res.homeGoals}-${res.awayGoals}`;
+        scoreCounts[key] = (scoreCounts[key] || 0) + 1;
     }
+
+    let predictedScore = '1-1';
+    let maxCount = 0;
+    for (const [score, count] of Object.entries(scoreCounts)) {
+        if (count > maxCount) { maxCount = count; predictedScore = score; }
+    }
+
+    const topScores = Object.entries(scoreCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([score, count]) => ({ score, prob: Math.round((count / iterations) * 100) }));
 
     return {
         homeWinProb: Math.round((homeWins / iterations) * 100),
         drawProb: Math.round((draws / iterations) * 100),
-        awayWinProb: Math.round((awayWins / iterations) * 100)
+        awayWinProb: Math.round((awayWins / iterations) * 100),
+        predictedScore,
+        expectedGoals: {
+            home: Math.round((totalHomeGoals / iterations) * 10) / 10,
+            away: Math.round((totalAwayGoals / iterations) * 10) / 10,
+        },
+        topScores,
+        avgCards: Math.round((totalCards / iterations) * 10) / 10,
+        avgCorners: Math.round((totalCorners / iterations) * 10) / 10,
+        over35CardsProb: Math.round((over35Cards / iterations) * 100),
+        over95CornersProb: Math.round((over95Corners / iterations) * 100),
     };
 };
 
