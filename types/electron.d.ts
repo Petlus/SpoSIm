@@ -327,7 +327,8 @@ export interface ElectronAPI {
 
     // Bet Center
     verifyBetSlip: (bets: any[]) => Promise<any>;
-    analyzeBetSlip: (bets: any[]) => Promise<any>;
+    analyzeBetSlip: (bets: any[], model?: string) => Promise<any>;
+    getAiModels: () => Promise<string[]>;
 
     on: (
         channel: string,

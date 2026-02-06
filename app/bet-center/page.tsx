@@ -33,6 +33,8 @@ type VerificationResult = {
 };
 
 export default function BetCenter() {
+    const [availableModels, setAvailableModels] = useState<string[]>([]);
+    const [selectedModel, setSelectedModel] = useState<string>('');
     const [matches, setMatches] = useState<Match[]>([]);
     const [slip, setSlip] = useState<BetSelection[]>([]);
     const [verification, setVerification] = useState<VerificationResult[] | null>(null);
@@ -43,7 +45,23 @@ export default function BetCenter() {
 
     useEffect(() => {
         loadMatches();
+        loadModels();
     }, []);
+
+    const loadModels = async () => {
+        if (!window.electron) return;
+        try {
+            const models = await window.electron.getAiModels();
+            if (models && models.length > 0) {
+                setAvailableModels(models);
+                // Default to DeepSeek or first available if deepseek not found
+                const defaultModel = models.find(m => m.includes('deepseek')) || models[0];
+                setSelectedModel(defaultModel);
+            }
+        } catch (e) {
+            console.error("Failed to load models:", e);
+        }
+    };
 
     const loadMatches = async () => {
         if (!window.electron) return;
@@ -52,11 +70,11 @@ export default function BetCenter() {
             // Fetch scores (includes upcoming matches)
             const data = await window.electron.espnGetScores();
             // Filter for upcoming and sim-able (has internalId)
-            const upcoming = data.filter((m: any) =>
+            const upcoming = data?.filter((m: any) =>
                 m.statusState === 'pre' &&
                 m.home.internalId &&
                 m.away.internalId
-            );
+            ) || [];
             setMatches(upcoming);
         } catch (e) {
             console.error(e);
@@ -105,7 +123,8 @@ export default function BetCenter() {
         if (!window.electron || slip.length === 0) return;
         setAnalyzing(true);
         try {
-            const res = await window.electron.analyzeBetSlip(slip);
+            // Pass selected model
+            const res = await window.electron.analyzeBetSlip(slip, selectedModel);
             setAiAnalysis(res.analysis || res.error);
         } catch (e) {
             console.error(e);
@@ -139,7 +158,7 @@ export default function BetCenter() {
 
                 <div className="space-y-3">
                     {matches.length === 0 && !loading && <div className="p-10 text-center text-slate-500">No sim-able matches found.</div>}
-                    {matches.map(m => (
+                    {matches?.map(m => (
                         <div key={m.id} className="glass-card p-4 flex items-center justify-between group hover:border-emerald-500/30 transition-all">
                             <div className="flex-1">
                                 <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2 mb-2">
@@ -185,7 +204,7 @@ export default function BetCenter() {
                                 Select matches to build your slip
                             </div>
                         )}
-                        {slip.map((bet, idx) => {
+                        {slip?.map((bet, idx) => {
                             const res = verification?.find(v => v.matchId === bet.matchId);
                             return (
                                 <div key={bet.matchId} className="bg-white/5 rounded-lg p-3 relative group">
@@ -235,22 +254,35 @@ export default function BetCenter() {
                             Run 1000 Simulations
                         </button>
 
-                        <button
-                            onClick={askAi}
-                            disabled={slip.length === 0 || analyzing}
-                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all"
-                        >
-                            {analyzing ? <RefreshCw className="animate-spin" size={16} /> : <Brain size={16} />}
-                            Ask AI Analyst
-                        </button>
+                        {/* AI Section with Model Selector */}
+                        <div className="space-y-2 pt-2 border-t border-white/5">
+                            {availableModels.length > 0 && (
+                                <select
+                                    value={selectedModel}
+                                    onChange={(e) => setSelectedModel(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300"
+                                >
+                                    {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                            )}
+
+                            <button
+                                onClick={askAi}
+                                disabled={slip.length === 0 || analyzing}
+                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all"
+                            >
+                                {analyzing ? <RefreshCw className="animate-spin" size={16} /> : <Brain size={16} />}
+                                Ask AI Analyst
+                            </button>
+                        </div>
 
                         {/* AI Output */}
                         {aiAnalysis && (
                             <div className="mt-4 bg-indigo-900/20 border border-indigo-500/30 rounded-lg p-3 text-xs text-indigo-200 leading-relaxed max-h-40 overflow-y-auto">
                                 <div className="flex items-center gap-2 mb-2 text-indigo-400 font-bold uppercase tracking-wider">
-                                    <Brain size={12} /> AI Verdict
+                                    <Brain size={12} /> AI Verdict ({selectedModel})
                                 </div>
-                                {aiAnalysis}
+                                <div className="whitespace-pre-wrap">{aiAnalysis}</div>
                             </div>
                         )}
                     </div>

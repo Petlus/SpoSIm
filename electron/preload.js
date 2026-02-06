@@ -44,6 +44,11 @@ contextBridge.exposeInMainWorld('electron', {
     espnSyncPlayerRatings: () => ipcRenderer.invoke('espn-sync-player-ratings'),
     espnGetTeamRoster: (league, espnTeamId) => ipcRenderer.invoke('espn-get-team-roster', { league, espnTeamId }),
 
+    // Bet Center
+    verifyBetSlip: (bets) => ipcRenderer.invoke('verify-bet-slip', { bets }),
+    analyzeBetSlip: (bets, model) => ipcRenderer.invoke('analyze-bet-slip', { bets, model }),
+    getAiModels: () => ipcRenderer.invoke('get-ai-models'),
+
     on: (channel, fn) => {
         const subscription = (_event, ...args) => fn(_event, ...args);
         ipcRenderer.on(channel, subscription);

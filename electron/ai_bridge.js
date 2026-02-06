@@ -9,6 +9,32 @@ class AiBridge {
     }
 
     /**
+     * Generate detailed response from Ollama
+     * @param {string} prompt 
+     * @param {string} [role] 
+     */
+    async generateResponse(prompt, role = 'analyst') {
+        const systemPrompts = {
+            'analyst': "You are an expert football analyst. Provide data-driven insights.",
+            'bet-analyst': "You are a professional sports betting analyst. Evaluate risks and value. Be concise."
+        };
+
+        try {
+            const response = await axios.post(this.baseUrl, {
+                model: this.defaultModel,
+                prompt: prompt,
+                stream: false,
+                system: systemPrompts[role] || systemPrompts['analyst'],
+                options: { temperature: 0.3, num_predict: 500 }
+            });
+            return response.data.response;
+        } catch (e) {
+            console.error("AI Generate Error:", e.message);
+            throw e;
+        }
+    }
+
+    /**
      * Generate Expert Analysis using Ollama
      * @param {Object} context Match context with extended data
      * @param {function} [onProgress] - (progress: number, step: string) => void
@@ -46,7 +72,7 @@ class AiBridge {
             { name: 'Unentschieden', prob: odds.drawProb, type: 'draw' },
             { name: away.name, prob: odds.awayWinProb, type: 'away' }
         ].sort((a, b) => b.prob - a.prob);
-        
+
         const favorite = probs[0];
         const favoriteText = favorite.type === 'draw' ? 'Unentschieden ist am wahrscheinlichsten' : `${favorite.name} ist FAVORIT (${favorite.prob}%)`;
 

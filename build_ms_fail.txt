@@ -1,0 +1,23 @@
+
+> betbrain@1.1.5 build
+> next build
+
+Ôû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Ô£ô Compiled successfully in 3.1s
+  Running TypeScript ...
+Failed to compile.
+
+./app/bet-center/page.tsx:61:9
+Type error: Cannot find name 'setLoading'.
+
+  59 |     const loadMatches = async () => {
+  60 |         if (!window.electron) return;
+> 61 |         setLoading(true);
+     |         ^
+  62 |         try {
+  63 |             // Fetch scores (includes upcoming matches)
+  64 |             const data = await window.electron.espnGetScores();
+Next.js build worker exited with code: 1 and signal: null

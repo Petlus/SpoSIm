@@ -100,7 +100,7 @@ class DataController {
             return results;
         });
 
-        ipcMain.handle('analyze-bet-slip', async (e, { bets }) => {
+        ipcMain.handle('analyze-bet-slip', async (e, { bets, model }) => {
             // Uses AI Analyst to review the slip
             try {
                 // 1. Context Building
@@ -117,20 +117,25 @@ class DataController {
                     contextText += `  Home Form: ${hForm.join('-')}, Away Form: ${aForm.join('-')}.\n`;
                 }
 
-                // 2. Send to Ollama (via bridge or direct manager if bridge is complex)
+                // 2. Send to Ollama
                 const prompt = `You are a professional sports betting analyst. 
                 ${contextText}
                 
                 Provide a risk assessment for this slip. Be concise (max 3 sentences per match). 
                 Conclude with a 'Verdict: Safe/Risky/Value'.`;
 
-                const response = await aiBridge.generateResponse(prompt, 'bet-analyst');
+                const response = await aiBridge.generateResponse(prompt, 'bet-analyst', model);
                 return { analysis: response };
             } catch (err) {
                 console.error("AI Analysis error:", err);
                 return { error: "Could not generate analysis." };
             }
         });
+
+        ipcMain.handle('get-ai-models', async () => {
+            return await ollamaManager.getAvailableModels();
+        });
+
         ipcMain.handle('check-ollama-status', this.handleCheckOllamaStatus.bind(this));
         ipcMain.handle('start-ollama', () => ollamaManager.startService());
         ipcMain.handle('get-setup-status', this.handleGetSetupStatus.bind(this));
