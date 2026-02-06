@@ -373,8 +373,8 @@ export default function LeaguePageClient() {
         if (window.electron) {
             try {
                 await new Promise(r => setTimeout(r, 400));
-                const odds = await window.electron.getMatchOdds(homeId, awayId);
-                setCupMatchOdds(prev => ({ ...prev, [key]: odds }));
+                const odds = await window.electron.getMatchOdds(homeId, awayId) as { homeWinProb: number; drawProb: number; awayWinProb: number };
+                setCupMatchOdds(prev => ({ ...prev, [key]: { homeWinProb: odds.homeWinProb, drawProb: odds.drawProb, awayWinProb: odds.awayWinProb } }));
             } catch (e) { console.error('predictCupMatch error:', e); }
         }
         setCupMatchLoadingOdds(prev => ({ ...prev, [key]: false }));
