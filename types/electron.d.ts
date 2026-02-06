@@ -325,6 +325,10 @@ export interface ElectronAPI {
     espnSyncPlayerRatings: () => Promise<{ success: boolean; updated?: number; errors?: number; error?: string }>;
     espnGetTeamRoster: (league: string, espnTeamId: string) => Promise<EspnRosterPlayer[]>;
 
+    // Bet Center
+    verifyBetSlip: (bets: any[]) => Promise<any>;
+    analyzeBetSlip: (bets: any[]) => Promise<any>;
+
     on: (
         channel: string,
         fn: (event: unknown, ...args: unknown[]) => void
@@ -337,4 +341,4 @@ declare global {
     }
 }
 
-export {};
+export { };

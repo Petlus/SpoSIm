@@ -1,0 +1,44 @@
+
+> betbrain@1.1.5 build
+> next build
+
+Ôû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Ô£ô Compiled successfully in 2.7s
+  Running TypeScript ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/159) ...
+  Generating static pages using 15 workers (39/159) 
+  Generating static pages using 15 workers (79/159) 
+  Generating static pages using 15 workers (119/159) 
+Ô£ô Generating static pages using 15 workers (159/159) in 2.5s
+  Finalizing page optimization ...
+
+Route (app)
+Ôöî Ôùï /
+Ôö£ Ôùï /_not-found
+Ôö£ Ôùï /bet-center
+Ôö£ Ôùï /football
+Ôö£ ÔùÅ /football/[leagueId]
+Ôöé Ôö£ /football/2002
+Ôöé Ôö£ /football/2021
+Ôöé Ôö£ /football/2014
+Ôöé Ôöö [+5 more paths]
+Ôö£ ÔùÅ /football/team/[teamId]
+Ôöé Ôö£ /football/team/5
+Ôöé Ôö£ /football/team/3
+Ôöé Ôö£ /football/team/4
+Ôöé Ôöö [+138 more paths]
+Ôö£ Ôùï /manager
+Ôö£ Ôùï /settings
+Ôöö ÔùÅ /tournament/[leagueId]
+  Ôö£ /tournament/2001
+  Ôö£ /tournament/2146
+  Ôöö /tournament/2154
+
+
+Ôùï  (Static)  prerendered as static content
+ÔùÅ  (SSG)     prerendered as static HTML (uses generateStaticParams)
+

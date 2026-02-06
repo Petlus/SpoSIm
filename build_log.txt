@@ -1,0 +1,28 @@
+
+> betbrain@1.1.5 build
+> next build
+
+Ôû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+Ô£ô Compiled successfully in 2.9s
+  Running TypeScript ...
+Failed to compile.
+
+./app/bet-center/page.tsx:60:24
+Type error: Argument of type 'EspnScore[]' is not assignable to parameter of type 'SetStateAction<Match[]>'.
+  Type 'EspnScore[]' is not assignable to type 'Match[]'.
+    Type 'EspnScore' is not assignable to type 'Match'.
+      The types of 'home.internalId' are incompatible between these types.
+        Type 'number | null' is not assignable to type 'number | undefined'.
+          Type 'null' is not assignable to type 'number | undefined'.
+
+  58 |                 m.away.internalId
+  59 |             );
+> 60 |             setMatches(upcoming);
+     |                        ^
+  61 |         } catch (e) {
+  62 |             console.error(e);
+  63 |         } finally {
+Next.js build worker exited with code: 1 and signal: null

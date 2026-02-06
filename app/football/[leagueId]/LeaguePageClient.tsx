@@ -225,7 +225,7 @@ export default function LeaguePageClient() {
             return;
         }
         try {
-            window.electron.getSetupStatus().then((s: any) => { if (s?.setupComplete) setSetupComplete(true); }).catch(() => {});
+            window.electron.getSetupStatus().then((s: any) => { if (s?.setupComplete) setSetupComplete(true); }).catch(() => { });
             const res = await window.electron.getData('football') as { leagues?: any[], error?: string };
             const league = res?.leagues?.find((l: any) => String(l.id) === String(leagueId));
             if (league) {
@@ -556,7 +556,7 @@ export default function LeaguePageClient() {
             {/* Dashboard View (Bento Grid) */}
             {activeTab === 'dashboard' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    
+
                     {/* 1. Matchday Matches (Top Left - All matches) */}
                     <MatchdayMatchesWidget />
 
@@ -572,8 +572,8 @@ export default function LeaguePageClient() {
                                 {ollamaStatus === 'ready' ? 'System Online' : 'System Offline'}
                             </h3>
                             <p className="text-sm text-slate-400 mt-2">
-                                {ollamaStatus === 'ready' 
-                                    ? 'Neural engines ready for match prediction.' 
+                                {ollamaStatus === 'ready'
+                                    ? 'Neural engines ready for match prediction.'
                                     : 'Connect Ollama to enable advanced predictions.'}
                             </p>
                         </div>
@@ -652,22 +652,22 @@ export default function LeaguePageClient() {
 
                     {/* 5. League Stats / Info (Bottom Right) */}
                     <div className="col-span-1 md:col-span-2 glass-card p-6 flex items-center justify-around text-center">
-                         <div>
+                        <div>
                             <div className="text-3xl font-black text-white mb-1">{data.teams.length}</div>
                             <div className="text-xs text-slate-500 uppercase tracking-wider">Teams</div>
-                         </div>
-                         <div className="w-px h-12 bg-white/10"></div>
-                         <div>
+                        </div>
+                        <div className="w-px h-12 bg-white/10"></div>
+                        <div>
                             <div className="text-3xl font-black text-white mb-1">{currentMatchday}</div>
                             <div className="text-xs text-slate-500 uppercase tracking-wider">Matchday</div>
-                         </div>
-                         <div className="w-px h-12 bg-white/10"></div>
-                         <div>
+                        </div>
+                        <div className="w-px h-12 bg-white/10"></div>
+                        <div>
                             <div className="text-3xl font-black text-emerald-400 mb-1">
-                                {(data.teams.reduce((acc: number, t: any) => acc + (t.stats?.gf || 0), 0) / (data.teams[0]?.stats?.played || 1) / (data.teams.length/2)).toFixed(2)}
+                                {(data.teams.reduce((acc: number, t: any) => acc + (t.stats?.gf || 0), 0) / (data.teams[0]?.stats?.played || 1) / (data.teams.length / 2)).toFixed(2)}
                             </div>
                             <div className="text-xs text-slate-500 uppercase tracking-wider">Goals/Match</div>
-                         </div>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1908,7 +1908,7 @@ export default function LeaguePageClient() {
                                                     <div className="bg-slate-900/80 backdrop-blur-xl rounded-xl border border-purple-500/30 shadow-2xl overflow-hidden">
                                                         {/* Header Gradient */}
                                                         <div className="h-1 bg-gradient-to-r from-purple-500 via-fuchsia-500 to-emerald-500"></div>
-                                                        
+
                                                         {/* Reasoning Toggle */}
                                                         {thoughtProcess && (
                                                             <div className="bg-black/40 border-b border-white/5">
@@ -1938,11 +1938,10 @@ export default function LeaguePageClient() {
                                                                     </div>
                                                                     {parsed.tip.match(/Konfidenz:\s*(.*)/i) && (
                                                                         <div className="mt-2 flex justify-center">
-                                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
-                                                                                parsed.tip.includes('Hoch') ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 
-                                                                                parsed.tip.includes('Mittel') ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 
-                                                                                'bg-slate-700 text-slate-400 border-slate-600'
-                                                                            }`}>
+                                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${parsed.tip.includes('Hoch') ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                                                                parsed.tip.includes('Mittel') ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                                                                                    'bg-slate-700 text-slate-400 border-slate-600'
+                                                                                }`}>
                                                                                 Confidence: {parsed.tip.match(/Konfidenz:\s*(.*)/i)?.[1]}
                                                                             </span>
                                                                         </div>
@@ -1970,17 +1969,17 @@ export default function LeaguePageClient() {
                                                                 <div className="relative group cursor-default">
                                                                     <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-r border-amber-500/30 z-10"></div>
                                                                     <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-l border-amber-500/30 z-10"></div>
-                                                                    
+
                                                                     <div className="bg-gradient-to-br from-amber-500/10 to-orange-600/5 border border-amber-500/30 rounded-lg p-4 relative overflow-hidden">
                                                                         <div className="flex justify-between items-center mb-2">
                                                                             <span className="text-[10px] font-bold text-amber-500/80 uppercase tracking-widest border border-amber-500/30 px-1.5 rounded">Top Pick</span>
                                                                             <Sparkles size={12} className="text-amber-400" />
                                                                         </div>
-                                                                        
+
                                                                         <div className="text-lg font-bold text-amber-100 font-mono tracking-tight">
                                                                             {parsed.bet}
                                                                         </div>
-                                                                        
+
                                                                         <div className="mt-3 pt-3 border-t border-amber-500/20 border-dashed flex justify-between items-center">
                                                                             <span className="text-[10px] text-amber-500/60 font-mono">AI-VERIFIED • HIGH VALUE</span>
                                                                             <div className="h-2 w-16 bg-amber-500/20 rounded-full overflow-hidden">

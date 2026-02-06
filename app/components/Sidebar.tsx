@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Home, Trophy, Flag, Settings, Zap, Briefcase } from 'lucide-react';
+import { Home, Trophy, Flag, Settings, Zap, Briefcase, Ticket } from 'lucide-react';
 
 export function Sidebar() {
     const pathname = usePathname();
@@ -9,6 +9,7 @@ export function Sidebar() {
     const menu = [
         { name: 'Home', icon: Home, path: '/', disabled: false },
         { name: 'Football', icon: Trophy, path: '/football', disabled: false },
+        { name: 'Bet Center', icon: Ticket, path: '/bet-center', disabled: false },
         { name: 'Formula 1', icon: Zap, path: '/f1', disabled: true, badge: 'Soon' },
         { name: 'Manager', icon: Briefcase, path: '/manager', disabled: true, badge: 'Soon' },
     ];

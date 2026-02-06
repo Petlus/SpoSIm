@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('electron', {
     getSetupStatus: () => ipcRenderer.invoke('get-setup-status'),
     getStandings: (leagueId, season) => ipcRenderer.invoke('get-standings', { leagueId, season }),
 
+    // Bet Center
+    verifyBetSlip: (bets) => ipcRenderer.invoke('verify-bet-slip', { bets }),
+    analyzeBetSlip: (bets) => ipcRenderer.invoke('analyze-bet-slip', { bets }),
+
     // ESPN API
     espnGetNews: (league) => ipcRenderer.invoke('espn-get-news', league || null),
     espnGetScores: (league) => ipcRenderer.invoke('espn-get-scores', league || null),
