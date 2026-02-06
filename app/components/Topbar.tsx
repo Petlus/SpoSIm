@@ -2,7 +2,6 @@
 
 import { Bell, Search, UserCircle, Calendar, Trophy, Flag, Target } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Link from 'next/link';
 import { CURRENT_SEASON_STR } from '../../config/season';
 
 export function Topbar() {
@@ -93,10 +92,10 @@ export function Topbar() {
                                         <div className="px-3 py-1">
                                             <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">Leagues</div>
                                             {results!.leagues.map((l) => (
-                                                <Link key={l.id} href={`/football/${l.id}`} onClick={() => { setShowDropdown(false); setQuery(''); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-200">
+                                                <a key={l.id} href={`/football/${l.id}`} onClick={() => { setShowDropdown(false); setQuery(''); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-200">
                                                     <Trophy size={14} className="text-amber-400" />
                                                     {l.name}
-                                                </Link>
+                                                </a>
                                             ))}
                                         </div>
                                     )}
@@ -104,11 +103,11 @@ export function Topbar() {
                                         <div className="px-3 py-1">
                                             <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">Teams</div>
                                             {results!.teams.map((t) => (
-                                                <Link key={t.id} href={`/football/team/${t.id}`} onClick={() => { setShowDropdown(false); setQuery(''); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-200">
+                                                <a key={t.id} href={`/football/team/${t.id}`} onClick={() => { setShowDropdown(false); setQuery(''); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-200">
                                                     <Flag size={14} className="text-cyan-400" />
                                                     <span className="flex-1 truncate">{t.name}</span>
                                                     {t.leagueName && <span className="text-xs text-slate-500 truncate max-w-[100px]">{t.leagueName}</span>}
-                                                </Link>
+                                                </a>
                                             ))}
                                         </div>
                                     )}
@@ -116,12 +115,12 @@ export function Topbar() {
                                         <div className="px-3 py-1">
                                             <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">Players</div>
                                             {results!.players.map((p) => (
-                                                <Link key={p.id} href={p.teamId ? `/football/team/${p.teamId}` : '#'} onClick={() => { setShowDropdown(false); setQuery(''); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-200">
+                                                <a key={p.id} href={p.teamId ? `/football/team/${p.teamId}` : '#'} onClick={() => { setShowDropdown(false); setQuery(''); }} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-sm text-slate-200">
                                                     <Target size={14} className="text-emerald-400" />
                                                     <span className="flex-1 truncate">{p.name}</span>
                                                     {p.goals != null && <span className="text-xs text-amber-400 font-mono">{p.goals}G</span>}
                                                     {p.teamName && <span className="text-xs text-slate-500 truncate max-w-[80px]">{p.teamName}</span>}
-                                                </Link>
+                                                </a>
                                             ))}
                                         </div>
                                     )}

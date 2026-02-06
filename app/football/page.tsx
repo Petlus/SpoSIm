@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Trophy, Star, TrendingUp, Activity, Globe } from 'lucide-react';
 import { CURRENT_SEASON_STR } from '../../config/season';
-import Link from 'next/link';
 
 const COUNTRY_ORDER = ['England', 'Spain', 'Germany', 'Italy', 'France', 'Europe'];
 
@@ -199,7 +198,7 @@ export default function FootballHome() {
                                             const isTournament = league.type === 'tournament';
 
                                             return (
-                                                <Link
+                                                <a
                                                     key={league.id}
                                                     href={href}
                                                     className="flex items-center justify-between p-3 rounded-xl bg-black/20 hover:bg-white/10 border border-white/5 hover:border-white/20 transition-all duration-300 group/item"
@@ -225,7 +224,7 @@ export default function FootballHome() {
                                                             </span>
                                                         )}
                                                     </div>
-                                                </Link>
+                                                </a>
                                             );
                                         })}
                                     </div>

@@ -1,6 +1,6 @@
 {
   "name": "betbrain",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Sports simulation with AI-powered match analysis for football leagues",
   "private": true,
   "main": "electron/index.js",
@@ -68,12 +68,17 @@
       {
         "from": "prisma",
         "to": "prisma",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis"],
-      "icon": "public/logo.png"
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/logo.png",
+      "artifactName": "${productName}.Setup.${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
